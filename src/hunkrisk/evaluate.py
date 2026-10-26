@@ -113,20 +113,31 @@ class Predictor:
         }
 
 
+def length_batches(lengths: list[int], max_size: int, max_tokens: int) -> list[list[int]]:
+    """Group indices, shortest first, so each padded batch stays within a token budget."""
+    batches: list[list[int]] = []
+    for i in sorted(range(len(lengths)), key=lengths.__getitem__):
+        batch = batches[-1] if batches else None
+        fits = batch and len(batch) < max_size and lengths[i] * (len(batch) + 1) <= max_tokens
+        if fits:
+            batch.append(i)
+        else:
+            batches.append([i])
+    return batches
+
+
 @torch.inference_mode()
 def throughput(predictor: Predictor, records: list[dict[str, Any]], batch_size: int,
-               max_new_tokens: int) -> float:  # fmt: skip
+               max_new_tokens: int, max_batch_tokens: int = 4096) -> float:  # fmt: skip
     """GPU-seconds per hunk when processed in length-sorted batches, as a batch job would."""
     tokenizer = predictor.tokenizer
+    prompts = [prompt_text(tokenizer, r["file"], r["hunk"], predictor.full_guide) for r in records]
+    lengths = [len(tokenizer(p, add_special_tokens=False).input_ids) for p in prompts]
     tokenizer.padding_side = "left"
-    prompts = sorted(
-        (prompt_text(tokenizer, r["file"], r["hunk"], predictor.full_guide) for r in records),
-        key=len,
-    )
     predictor._sync()
     started = time.perf_counter()
-    for i in range(0, len(prompts), batch_size):
-        enc = tokenizer(prompts[i : i + batch_size], return_tensors="pt", padding=True,
+    for batch in length_batches(lengths, batch_size, max_batch_tokens):
+        enc = tokenizer([prompts[i] for i in batch], return_tensors="pt", padding=True,
                         add_special_tokens=False).to(predictor.device)  # fmt: skip
         predictor.model.generate(**enc, max_new_tokens=max_new_tokens, do_sample=False,
                                  pad_token_id=tokenizer.pad_token_id)  # fmt: skip
@@ -139,18 +150,21 @@ def run_split(predictor: Predictor, args: argparse.Namespace, split: str) -> dic
     path = Path(f"data/hunks/{split}.jsonl")
     records = [json.loads(line) for line in path.read_text().splitlines()]
     records = records[: args.limit] if args.limit else records
+    suffix = f"-{args.device}" if args.device != "cuda" else ""
+    out = Path("data/predictions") / args.name / f"{split}{suffix}.jsonl"
     if args.device == "cuda":
         torch.cuda.reset_peak_memory_stats()
     predictor.predict(records[0]["file"], records[0]["hunk"], 8)  # warm-up: compile, allocate
 
-    rows = []
-    for r in tqdm(records, desc=f"{args.name}/{split}", unit="hunk"):
-        rows.append({"id": r["id"]} | predictor.predict(r["file"], r["hunk"], args.max_new_tokens))
-
-    suffix = f"-{args.device}" if args.device != "cuda" else ""
-    out = Path("data/predictions") / args.name / f"{split}{suffix}.jsonl"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    if args.reuse and out.exists():
+        rows = [json.loads(line) for line in out.read_text().splitlines()]
+    else:
+        rows = []
+        for r in tqdm(records, desc=f"{args.name}/{split}", unit="hunk"):
+            prediction = predictor.predict(r["file"], r["hunk"], args.max_new_tokens)
+            rows.append({"id": r["id"]} | prediction)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
     latencies = sorted(r["latency_s"] for r in rows)
     summary = {
         "model": args.model,
@@ -189,6 +203,7 @@ def main() -> None:
     parser.add_argument(
         "--throughput-batch", type=int, default=0, help="also time batched generation (cost)"
     )
+    parser.add_argument("--reuse", action="store_true", help="keep predictions already saved")
     args = parser.parse_args()
 
     model, tokenizer = load(args.model, args.device, args.load_in_4bit)

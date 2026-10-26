@@ -1,6 +1,10 @@
 import json
 from types import SimpleNamespace
 
+import pytest
+
+pytest.importorskip("torch", reason="needs the train dependency group")
+
 from hunkrisk.sft import ANSWER_PREFIX, Collator, answer_text, rebalance, tokenize
 
 
@@ -58,3 +62,14 @@ def test_collator_pads_inputs_and_ignores_padding_in_the_loss():
     assert batch["input_ids"].tolist() == [[5, 6, 7], [5, 0, 0]]
     assert batch["labels"].tolist() == [[-100, 6, 7], [5, -100, -100]]
     assert batch["attention_mask"].tolist() == [[1, 1, 1], [1, 0, 0]]
+
+
+def test_length_batches_respect_size_and_token_budget():
+    from hunkrisk.evaluate import length_batches
+
+    lengths = [100, 900, 120, 1500, 110, 130]
+    batches = length_batches(lengths, max_size=3, max_tokens=1000)
+    assert sorted(i for b in batches for i in b) == list(range(6))
+    for batch in batches:
+        assert len(batch) <= 3
+        assert len(batch) == 1 or max(lengths[i] for i in batch) * len(batch) <= 1000

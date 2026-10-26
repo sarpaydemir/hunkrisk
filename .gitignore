@@ -13,8 +13,6 @@ unsloth_compiled_cache/
 data/*
 !data/gold/
 
-# runs: keep configs and metrics, drop weights and checkpoints
-runs/**/checkpoint-*/
-runs/**/*.safetensors
-runs/**/*.bin
-runs/**/*.pt
+# runs: keep configs, metrics and loss history; weights live on the Hugging Face Hub
+runs/**/checkpoints/
+runs/**/adapter/

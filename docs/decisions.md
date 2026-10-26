@@ -9,7 +9,7 @@ A running log of design choices and the reasons behind them, newest at the botto
 - **Split by repository, fixed before any data is pulled.** Hunks from one repo share naming, conventions and near-duplicate code. A random hunk-level split would leak that into test and overstate quality. The split lives in [`configs/repos.yaml`](../configs/repos.yaml).
 - **Diffs come from the GitHub API, not clones.** Only sampled commits are needed. Listing commits (with `path=` filters for targeted sampling) and fetching per-commit diffs avoids cloning multi-gigabyte repositories.
 - **Sampling mixes targeted and random commits.** Targeted commits touch paths or keywords associated with risk (migrations, auth, payments, env and config). Random commits are drawn uniformly from history. Sampling only by keyword would make the keyword baseline look artificially strong and miss the hard cases, like a pricing change in `utils.py` or a permission check inside a controller. The keyword baseline's recall is reported separately on both parts.
-- **The test set is at least 30% `high`.** With ~300 hunks that gives 90+ positives, enough for a usable recall estimate. Since oversampling inflates precision, precision is also reported reweighted to the natural base rate measured on the random sample.
+- **The test set is at least 30% `high`.** With ~300 hunks that gives 90+ positives, enough for a usable recall estimate. Since oversampling inflates precision, precision is also reported reweighted to the natural base rate measured on the random sample. *(Superseded by the base-rate entry below.)*
 - **Collection parameters** live in [`configs/collect.yaml`](../configs/collect.yaml):
   - **Window:** commits from 2022-01-01 to a fixed cutoff of 2026-10-26, so reruns see the same history.
   - **Quotas:** 60 hunks per test and validation repo, 150 per train repo, for 300 / 300 / 3,000 in total. Train is collected above the 2,400 target so it can be rebalanced once teacher labels exist.
@@ -42,8 +42,8 @@ A running log of design choices and the reasons behind them, newest at the botto
   | `qwen/qwen3.8-flash` | 0.15 | 0.47 |
   | `openai/gpt-5.6-luna` | 0.20 | 1.20 |
 
-  **Open:** picked by a 50-hunk pilot on validation repos.
-- **Ceiling model: a frontier model, on the test set only.** `anthropic/claude-sonnet-5.5` ($2 / $10 per M tokens) costs about $0.90 for 300 hunks. It sets the quality ceiling and the cost reference in the release bar. Its outputs are never used as training data.
+  **Settled below:** DeepSeek V4.1 Flash, picked by a 50-hunk pilot on validation repos.
+- **Ceiling model: a frontier model, on the test set only.** `anthropic/claude-sonnet-5.5` ($2 / $10 per M tokens) costs about $0.90 for 300 hunks. It sets the quality ceiling and the cost reference in the release bar. Its outputs are never used as training data. *(Model changed to Sonnet 5 below.)*
 - **No local teacher.** Models that fit in 6 GB aren't strong enough to label. The base-model zero-shot baseline runs through the same stack used for training.
 
 ### Evaluation
@@ -68,3 +68,16 @@ A running log of design choices and the reasons behind them, newest at the botto
   | Qwen3.5-0.8B | 16-bit LoRA | 2.23 GB | 0.80 |
 
   **Open:** train Qwen3.5-2B (16-bit LoRA) and Qwen3-1.7B (QLoRA), and pick on validation.
+
+## 2026-10-26: teacher pilot and base rate
+
+- **Teacher: `deepseek/deepseek-v4.1-flash`** (open weights, MIT license). In a pilot on 50 validation hunks, balanced across repositories and compared against Claude Sonnet 5:
+
+  | Candidate | Agreement | κ | Recall `high` | Precision `high` | Cost / 50 |
+  |---|---|---|---|---|---|
+  | DeepSeek V4.1 Flash | 0.94 | 0.81 | 0.89 | 0.80 | $0.0065 |
+  | Qwen3.8 Flash | 0.92 | 0.75 | 0.89 | 0.73 | $0.0036 |
+
+  Only 9 of the 50 hunks were `high` per the reference, so the gap is about one hunk. The license settles it. GLM-5.3 was dropped: OpenRouter requires reasoning for it, which makes it the most expensive of the cheap candidates.
+- **Ceiling model: `anthropic/claude-sonnet-5`, reasoning off.** On OpenRouter, Sonnet 5.5 requires reasoning, which is billed as output and would put the 300-hunk ceiling run close to the whole API budget. Sonnet 5 has the same list price and can run without reasoning. That's also the fairer comparison, because the fine-tuned model doesn't reason either.
+- **Base rate: teacher labels put validation at 18% `high`** (23% of targeted hunks, 12% of random ones). The ≥ 30% target assumed path-targeted commits would be richer in risky hunks than they are. The test set is kept as collected rather than re-selected with a model's help, which would bias it toward hunks a model already recognizes. That means roughly 50–60 positives in test, so recall comes with a bootstrap 95% CI (about ±8 points at that size) reported next to the point estimate.

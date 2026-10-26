@@ -1,0 +1,39 @@
+# Source repositories and their split. Fixed before any data was pulled; each repo
+# belongs to exactly one split. Licenses verified with the GitHub API on 2026-10-26.
+
+repos:
+  # test: held out, labeled blind by a human
+  - {repo: BookStackApp/BookStack, stack: laravel, license: MIT, split: test}
+  - {repo: saleor/saleor, stack: django, license: BSD-3-Clause, split: test}
+  - {repo: polarsource/polar, stack: fastapi, license: Apache-2.0, split: test}
+  - {repo: authelia/authelia, stack: go, license: Apache-2.0, split: test}
+  - {repo: payloadcms/payload, stack: ts, license: MIT, split: test}
+
+  # val: teacher pilot, early stopping, threshold tuning, model selection
+  - {repo: krayin/laravel-crm, stack: laravel, license: MIT, split: val}
+  - {repo: healthchecks/healthchecks, stack: django, license: BSD-3-Clause, split: val}
+  - {repo: fastapi/full-stack-fastapi-template, stack: fastapi, license: MIT, split: val}
+  - {repo: hatchet-dev/hatchet, stack: go, license: MIT, split: val}
+  - {repo: umami-software/umami, stack: ts, license: MIT, split: val}
+
+  # train
+  - {repo: bagisto/bagisto, stack: laravel, license: MIT, split: train}
+  - {repo: coollabsio/coolify, stack: laravel, license: Apache-2.0, split: train}
+  - {repo: lunarphp/lunar, stack: laravel, license: MIT, split: train}
+  - {repo: unopim/unopim, stack: laravel, license: MIT, split: train}
+  - {repo: netbox-community/netbox, stack: django, license: Apache-2.0, split: train}
+  - {repo: zulip/zulip, stack: django, license: Apache-2.0, split: train}
+  - {repo: django-oscar/django-oscar, stack: django, license: BSD-3-Clause, split: train}
+  - {repo: HumanSignal/label-studio, stack: django, license: Apache-2.0, split: train}
+  - {repo: Netflix/dispatch, stack: fastapi, license: Apache-2.0, split: train}
+  - {repo: lnbits/lnbits, stack: fastapi, license: MIT, split: train}
+  - {repo: fastapi-users/fastapi-users, stack: fastapi, license: MIT, split: train}
+  - {repo: zenml-io/zenml, stack: fastapi, license: Apache-2.0, split: train}
+  - {repo: go-gitea/gitea, stack: go, license: MIT, split: train}
+  - {repo: ory/kratos, stack: go, license: Apache-2.0, split: train}
+  - {repo: ory/hydra, stack: go, license: Apache-2.0, split: train}
+  - {repo: pocketbase/pocketbase, stack: go, license: MIT, split: train}
+  - {repo: goharbor/harbor, stack: go, license: Apache-2.0, split: train}
+  - {repo: hoppscotch/hoppscotch, stack: ts, license: MIT, split: train}
+  - {repo: better-auth/better-auth, stack: ts, license: MIT, split: train}
+  - {repo: supabase/supabase, stack: ts, license: Apache-2.0, split: train}

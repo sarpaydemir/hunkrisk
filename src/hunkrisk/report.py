@@ -87,9 +87,11 @@ def decisions(system: System) -> tuple[dict[str, dict[str, Any]], dict[str, Any]
             "categories": categories if high else ["none"],
         }
     latency = float(np.mean([r["latency_s"] for r in rows.values()]))
+    summary = json.loads((folder / "test.summary.json").read_text())
+    gpu_seconds = summary.get("throughput_s_per_hunk", latency)  # batched when measured
     info = {
         "valid": sum(r["label"] is not None for r in rows.values()) / len(rows),
-        "usd_per_1k": 1000 * latency / 3600 * GPU_USD_PER_HOUR,
+        "usd_per_1k": 1000 * gpu_seconds / 3600 * GPU_USD_PER_HOUR,
         "latency": latency,
         "threshold": threshold,
         "as_generated": {

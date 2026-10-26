@@ -1,7 +1,7 @@
 """Run a local model (base or fine-tuned) over a split and record its predictions.
 
-    uv run python -m hunkrisk.evaluate --model runs/<run>/adapter --split test --name ft-qwen3.5-2b
-    uv run python -m hunkrisk.evaluate --model Qwen/Qwen3.5-2B --full-guide --split test \\
+    uv run python -m hunkrisk.evaluate --model runs/<run>/adapter --name ft-qwen3.5-2b
+    uv run python -m hunkrisk.evaluate --model Qwen/Qwen3.5-2B --full-guide \\
         --name qwen3.5-2b-zeroshot
 
 Per hunk it stores the raw generation, the strictly parsed label (or the validation error),
@@ -113,39 +113,48 @@ class Predictor:
         }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--model", required=True, help="hub id or a LoRA adapter directory")
-    parser.add_argument("--name", required=True, help="output folder under data/predictions")
-    parser.add_argument("--split", default="test")
-    parser.add_argument("--full-guide", action="store_true", help="zero-shot with the full guide")
-    parser.add_argument("--load-in-4bit", action="store_true")
-    parser.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
-    parser.add_argument("--limit", type=int, help="first N hunks only (CPU latency runs)")
-    parser.add_argument("--max-new-tokens", type=int, default=160)
-    args = parser.parse_args()
+@torch.inference_mode()
+def throughput(predictor: Predictor, records: list[dict[str, Any]], batch_size: int,
+               max_new_tokens: int) -> float:  # fmt: skip
+    """GPU-seconds per hunk when processed in length-sorted batches, as a batch job would."""
+    tokenizer = predictor.tokenizer
+    tokenizer.padding_side = "left"
+    prompts = sorted(
+        (prompt_text(tokenizer, r["file"], r["hunk"], predictor.full_guide) for r in records),
+        key=len,
+    )
+    predictor._sync()
+    started = time.perf_counter()
+    for i in range(0, len(prompts), batch_size):
+        enc = tokenizer(prompts[i : i + batch_size], return_tensors="pt", padding=True,
+                        add_special_tokens=False).to(predictor.device)  # fmt: skip
+        predictor.model.generate(**enc, max_new_tokens=max_new_tokens, do_sample=False,
+                                 pad_token_id=tokenizer.pad_token_id)  # fmt: skip
+    predictor._sync()
+    tokenizer.padding_side = "right"
+    return (time.perf_counter() - started) / len(prompts)
 
-    records = [
-        json.loads(x) for x in Path(f"data/hunks/{args.split}.jsonl").read_text().splitlines()
-    ]
+
+def run_split(predictor: Predictor, args: argparse.Namespace, split: str) -> dict[str, Any]:
+    path = Path(f"data/hunks/{split}.jsonl")
+    records = [json.loads(line) for line in path.read_text().splitlines()]
     records = records[: args.limit] if args.limit else records
-    model, tokenizer = load(args.model, args.device, args.load_in_4bit)
-    predictor = Predictor(model, tokenizer, args.device, args.full_guide)
     if args.device == "cuda":
         torch.cuda.reset_peak_memory_stats()
+    predictor.predict(records[0]["file"], records[0]["hunk"], 8)  # warm-up: compile, allocate
 
     rows = []
-    for r in tqdm(records, desc=f"{args.name}/{args.split}", unit="hunk"):
+    for r in tqdm(records, desc=f"{args.name}/{split}", unit="hunk"):
         rows.append({"id": r["id"]} | predictor.predict(r["file"], r["hunk"], args.max_new_tokens))
 
     suffix = f"-{args.device}" if args.device != "cuda" else ""
-    out = Path("data/predictions") / args.name / f"{args.split}{suffix}.jsonl"
+    out = Path("data/predictions") / args.name / f"{split}{suffix}.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
     latencies = sorted(r["latency_s"] for r in rows)
     summary = {
         "model": args.model,
-        "split": args.split,
+        "split": split,
         "device": args.device,
         "full_guide": args.full_guide,
         "n": len(rows),
@@ -153,13 +162,39 @@ def main() -> None:
         "p_from_generation": sum(r["p_source"] == "generation" for r in rows) / len(rows),
         "latency_mean_s": round(statistics.mean(latencies), 4),
         "latency_p50_s": round(latencies[len(latencies) // 2], 4),
-        "latency_p95_s": round(latencies[int(len(latencies) * 0.95) - 1], 4),
+        "latency_p95_s": round(latencies[max(0, int(len(latencies) * 0.95) - 1)], 4),
         "peak_vram_gb": round(torch.cuda.max_memory_reserved() / 2**30, 2)
         if args.device == "cuda"
         else None,
     }
-    out.with_name(f"{args.split}{suffix}.summary.json").write_text(json.dumps(summary, indent=2))
-    print(json.dumps(summary))
+    if args.throughput_batch:
+        summary["throughput_batch"] = args.throughput_batch
+        summary["throughput_s_per_hunk"] = round(
+            throughput(predictor, records, args.throughput_batch, args.max_new_tokens), 4
+        )
+    out.with_name(f"{split}{suffix}.summary.json").write_text(json.dumps(summary, indent=2))
+    return summary
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--model", required=True, help="hub id or a LoRA adapter directory")
+    parser.add_argument("--name", required=True, help="output folder under data/predictions")
+    parser.add_argument("--splits", nargs="+", default=["val", "test"])
+    parser.add_argument("--full-guide", action="store_true", help="zero-shot with the full guide")
+    parser.add_argument("--load-in-4bit", action="store_true")
+    parser.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
+    parser.add_argument("--limit", type=int, help="first N hunks only (CPU latency runs)")
+    parser.add_argument("--max-new-tokens", type=int, default=160)
+    parser.add_argument(
+        "--throughput-batch", type=int, default=0, help="also time batched generation (cost)"
+    )
+    args = parser.parse_args()
+
+    model, tokenizer = load(args.model, args.device, args.load_in_4bit)
+    predictor = Predictor(model, tokenizer, args.device, args.full_guide)
+    for split in args.splits:
+        print(json.dumps(run_split(predictor, args, split)))
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ train = [
     "bitsandbytes",
     "datasets",
     "accelerate",
+    "flash-linear-attention>=0.6.0",
 ]
 dev = ["ruff", "pytest"]
 

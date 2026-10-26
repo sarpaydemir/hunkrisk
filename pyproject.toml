@@ -40,6 +40,8 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+# Typographic characters that belong in the generated markdown tables.
+allowed-confusables = ["–", "×", "≥", "≤"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

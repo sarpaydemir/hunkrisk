@@ -29,14 +29,20 @@ class Price:
     completion: float
 
 
+# Providers for the same model can differ in price by 10x or more. Route cheapest-first so
+# spend is predictable; every reply records which provider served it.
+PROVIDER_ROUTING = {"sort": "price"}
+
+
 def model_price(model: str) -> Price:
-    response = httpx.get(f"{BASE_URL}/models", timeout=30)
+    """The cheapest provider's price, which is where PROVIDER_ROUTING sends requests."""
+    response = httpx.get(f"{BASE_URL}/models/{model}/endpoints", timeout=30)
+    if response.status_code == 404:
+        raise ValueError(f"OpenRouter has no model {model!r}")
     response.raise_for_status()
-    for entry in response.json()["data"]:
-        if entry["id"] == model:
-            pricing = entry["pricing"]
-            return Price(float(pricing["prompt"]), float(pricing["completion"]))
-    raise ValueError(f"OpenRouter has no model {model!r}")
+    endpoints = response.json()["data"]["endpoints"]
+    cheapest = min(endpoints, key=lambda e: float(e["pricing"].get("prompt") or 0))["pricing"]
+    return Price(float(cheapest.get("prompt") or 0), float(cheapest.get("completion") or 0))
 
 
 def _api_key() -> str:
@@ -79,7 +85,11 @@ class Client:
             temperature=0,
             max_tokens=max_tokens,
             # Reasoning tokens are billed as output; a one-line JSON label doesn't need them.
-            extra_body={"usage": {"include": True}, "reasoning": {"enabled": False}},
+            extra_body={
+                "usage": {"include": True},
+                "reasoning": {"enabled": False},
+                "provider": PROVIDER_ROUTING,
+            },
         )
         usage = response.usage
         prompt_tokens = usage.prompt_tokens if usage else 0
@@ -95,6 +105,7 @@ class Client:
 
         result = {
             "text": response.choices[0].message.content or "",
+            "provider": (response.model_extra or {}).get("provider"),
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "cost": cost,

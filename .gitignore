@@ -9,11 +9,9 @@ __pycache__/
 .pytest_cache/
 unsloth_compiled_cache/
 
-# data: raw and intermediate files stay local; human gold labels are tracked
+# data: raw and intermediate files stay local; the gold test labels are tracked
 data/*
 !data/gold/
-data/gold/*
-!data/gold/.gitkeep
 
 # runs: keep configs and metrics, drop weights and checkpoints
 runs/**/checkpoint-*/

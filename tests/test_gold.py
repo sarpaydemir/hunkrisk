@@ -51,3 +51,11 @@ def test_saved_labels_persist_and_the_latest_wins(hunks, tmp_path):
 def test_rejects_invalid_labels(hunks, tmp_path, payload):
     with pytest.raises(InvalidOutput):
         GoldStore(hunks, tmp_path / "gold.jsonl").save(payload)
+
+
+def test_ids_filter_restricts_items_and_labels(hunks, tmp_path):
+    gold = tmp_path / "gold.jsonl"
+    GoldStore(hunks, gold).save({"id": "h3", "risk": "low", "categories": ["none"]})
+    store = GoldStore(hunks, gold, ids={"h1", "h2"})
+    assert sorted(i["id"] for i in store.items) == ["h1", "h2"]
+    assert store.labels == {}

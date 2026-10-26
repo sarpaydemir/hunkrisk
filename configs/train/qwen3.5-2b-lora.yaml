@@ -1,0 +1,7 @@
+# Current-generation candidate. Unsloth advises against 4-bit training on Qwen3.5,
+# so this is 16-bit LoRA; it peaks at ~4.9 GB on the reference GPU.
+name: qwen3.5-2b-lora
+model: Qwen/Qwen3.5-2B
+load_in_4bit: false
+batch_size: 1
+grad_accum: 16

@@ -1,0 +1,6 @@
+# Older but mature text-only model, trained with QLoRA as in the original plan.
+name: qwen3-1.7b-qlora
+model: unsloth/Qwen3-1.7B-unsloth-bnb-4bit
+load_in_4bit: true
+batch_size: 2
+grad_accum: 8

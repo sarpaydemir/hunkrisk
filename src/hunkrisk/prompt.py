@@ -36,6 +36,22 @@ def messages(file: str, hunk: str) -> list[dict[str, str]]:
     ]
 
 
+# The fine-tuned model learns the rules from ~3,000 labeled examples, so it gets a short
+# instruction instead of the full guide. That keeps inference about 5x cheaper per hunk.
+SHORT_SYSTEM = (
+    "Classify the diff hunk for code review risk. Reply with one JSON object: "
+    '{"risk": "high" or "low", "categories": [...], "reason": "<one sentence>"}. '
+    'Categories: auth, money, schema, data, secrets; use ["none"] when risk is low.'
+)
+
+
+def short_messages(file: str, hunk: str) -> list[dict[str, str]]:
+    return [
+        {"role": "system", "content": SHORT_SYSTEM},
+        {"role": "user", "content": user_message(file, hunk)},
+    ]
+
+
 def prompt_version() -> str:
     """Short hash of the system prompt, stored with every label for provenance."""
     return hashlib.sha256(system_prompt().encode()).hexdigest()[:12]

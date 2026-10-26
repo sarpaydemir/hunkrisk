@@ -68,6 +68,7 @@ def main() -> None:
     cfg = TrainConfig(**yaml.safe_load(args.config.read_text()))
     run_dir = args.runs / f"{datetime.now():%Y%m%d-%H%M}-{cfg.name}"
     run_dir.mkdir(parents=True, exist_ok=False)
+    revision = git_revision()  # at start: the code that actually trains
 
     model, processor = FastModel.from_pretrained(
         cfg.model,
@@ -141,7 +142,7 @@ def main() -> None:
     (run_dir / "config.yaml").write_text(yaml.safe_dump(asdict(cfg), sort_keys=False))
     (run_dir / "train_log.json").write_text(json.dumps(trainer.state.log_history, indent=1))
     metrics = {
-        "revision": git_revision(),
+        "revision": revision,
         "datasets": {k: sha256(getattr(cfg, k)) for k in
                      ("train_hunks", "train_labels", "val_hunks", "val_labels")},
         "train_examples": len(train),

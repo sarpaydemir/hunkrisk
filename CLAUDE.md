@@ -23,7 +23,12 @@ uv run python -m hunkrisk.collect                    # hunks -> data/hunks/{test
 uv run python -m hunkrisk.collect --scale 0.1 --only krayin/laravel-crm --out data/smoke
 uv run python -m hunkrisk.label --model deepseek/deepseek-v4.1-flash --input data/hunks/val.jsonl --max-usd 0.05
 uv run python -m hunkrisk.compare <reference.jsonl> <candidate.jsonl>...   # agreement table
-uv run python -m hunkrisk.gold                       # blind gold labeling UI on :8765
+uv run python -m hunkrisk.panel <judge-a.jsonl> <judge-b.jsonl>   # panel gold + disagreements
+uv run python -m hunkrisk.gold --ids data/gold/disagreements.txt  # blind adjudication UI on :8765
+uv run python -m hunkrisk.heuristic --split test
+uv run python -m hunkrisk.train configs/train/qwen3.5-2b-lora.yaml
+uv run python -m hunkrisk.evaluate --model runs/<run>/adapter --split test --name ft-qwen3.5-2b
+uv run python -m hunkrisk.report                     # reports/results.md + README results
 uv run python scripts/smoke_vram.py Qwen/Qwen3.5-2B --bf16
 ```
 

@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hunkrisk gold labeling</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --border: #e3e2de;
+    --add-bg: #e8f5ec; --add: #1a7f37; --del-bg: #fbeaea; --del: #c4312b; --hdr: #6f42c1;
+    --high: #c4312b; --low: #1a7f37; --accent: #2f6feb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151514; --panel: #1d1d1b; --text: #ecebe8; --muted: #9a9993; --border: #2f2f2c;
+      --add-bg: #12301c; --add: #56d364; --del-bg: #3a1514; --del: #f47067; --hdr: #b392f0;
+      --high: #f47067; --low: #56d364; --accent: #58a6ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px;
+           border-bottom: 1px solid var(--border); background: var(--panel); }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+  .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; padding: 20px; }
+  .file { font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; margin-bottom: 8px;
+          word-break: break-all; }
+  .pos { color: var(--muted); font-weight: 400; margin-left: 8px; }
+  pre { margin: 0; padding: 10px 0; background: var(--panel); border: 1px solid var(--border);
+        border-radius: 8px; overflow-x: auto; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre span { display: block; padding: 0 14px; white-space: pre; min-height: 1.5em; }
+  .a { background: var(--add-bg); color: var(--add); }
+  .d { background: var(--del-bg); color: var(--del); }
+  .h { color: var(--hdr); }
+  aside { display: flex; flex-direction: column; gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+             margin: 0 0 10px; font-weight: 600; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { font: inherit; border: 1px solid var(--border); background: var(--bg); color: var(--text);
+           border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  button kbd { color: var(--muted); font-size: 11px; margin-left: 4px; }
+  button.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  #high.on { border-color: var(--high); box-shadow: inset 0 0 0 1px var(--high); color: var(--high); }
+  #low.on { border-color: var(--low); box-shadow: inset 0 0 0 1px var(--low); color: var(--low); }
+  .risk button { flex: 1; padding: 10px; font-weight: 600; }
+  input[type=text] { width: 100%; font: inherit; padding: 7px 9px; border-radius: 6px;
+                     border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  #save { width: 100%; padding: 10px; font-weight: 600; background: var(--accent); color: #fff; border: 0; }
+  #save:disabled { opacity: .45; cursor: default; }
+  .msg { min-height: 1.2em; font-size: 12px; color: var(--del); margin-top: 8px; }
+  .nav { display: flex; justify-content: space-between; gap: 8px; }
+  .nav button { flex: 1; }
+  dl { margin: 0; font-size: 12.5px; }
+  dt { font-weight: 600; margin-top: 8px; } dt:first-child { margin-top: 0; }
+  dd { margin: 2px 0 0; color: var(--muted); }
+  .saved { color: var(--low); font-size: 12px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Gold labeling</h1>
+  <div class="bar"><div id="progress"></div></div>
+  <span class="count" id="count"></span>
+</header>
+<main>
+  <section>
+    <div class="file"><span id="file"></span><span class="pos" id="pos"></span></div>
+    <pre id="diff"></pre>
+  </section>
+  <aside>
+    <div class="card">
+      <h2>Risk</h2>
+      <div class="row risk">
+        <button id="high">High <kbd>H</kbd></button>
+        <button id="low">Low <kbd>L</kbd></button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Categories (high only)</h2>
+      <div class="row" id="cats"></div>
+    </div>
+    <div class="card">
+      <h2>Note (optional) <kbd>N</kbd></h2>
+      <input type="text" id="note" placeholder="Anything worth remembering about this hunk">
+    </div>
+    <div class="card">
+      <button id="save" disabled>Save and next <kbd style="color:#fff">Enter</kbd></button>
+      <div class="msg" id="msg"></div>
+      <div class="nav" style="margin-top:10px">
+        <button id="prev">← Prev</button>
+        <button id="next">Next →</button>
+      </div>
+      <div class="nav" style="margin-top:8px">
+        <button id="unlabeled">Next unlabeled <kbd>U</kbd></button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Rule</h2>
+      <dl>
+        <dt>High</dt><dd>The change alters behavior in a category below and a mistake could cost money, weaken access control, corrupt or lose data, or expose a secret. Torn between the two? Choose high.</dd>
+        <dt>auth</dt><dd>who can do what: sessions, roles, permissions, guards, tokens, CSRF/CORS</dd>
+        <dt>money</dt><dd>amounts, prices, rounding, discounts, taxes, invoices, refunds, payments</dd>
+        <dt>schema</dt><dd>persisted structure: migrations, models, columns, indexes, constraints</dd>
+        <dt>data</dt><dd>what is written, deleted or exposed: bulk ops, backfills, tenant scoping, PII</dd>
+        <dt>secrets</dt><dd>keys, passwords, .env, secret config, TLS verification, secrets in logs</dd>
+        <dt>Usually low</dt><dd>tests, docs, comments, formatting, renames, logging, UI copy, dependency bumps</dd>
+      </dl>
+    </div>
+  </aside>
+</main>
+<script>
+const CATEGORIES = ["auth", "money", "schema", "data", "secrets"];
+let items = [], labels = {}, index = 0, shownAt = Date.now();
+let risk = null, cats = new Set();
+
+const $ = (id) => document.getElementById(id);
+
+CATEGORIES.forEach((c, i) => {
+  const b = document.createElement("button");
+  b.id = "cat-" + c;
+  b.innerHTML = `${c} <kbd>${i + 1}</kbd>`;
+  b.onclick = () => toggleCategory(c);
+  $("cats").appendChild(b);
+});
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function render() {
+  const item = items[index];
+  const saved = labels[item.id];
+  risk = saved ? saved.risk : null;
+  cats = new Set(saved && saved.risk === "high" ? saved.categories : []);
+  $("note").value = saved ? saved.note || "" : "";
+  $("file").textContent = item.file;
+  $("pos").textContent = `#${index + 1}` + (saved ? " · saved" : "");
+  $("diff").innerHTML = item.hunk.split("\n").map((line) => {
+    const cls = line.startsWith("@@") ? "h" : line.startsWith("+") ? "a" : line.startsWith("-") ? "d" : "";
+    return `<span class="${cls}">${escapeHtml(line) || " "}</span>`;
+  }).join("");
+  $("msg").textContent = "";
+  shownAt = Date.now();
+  window.scrollTo(0, 0);
+  refresh();
+}
+
+function refresh() {
+  $("high").classList.toggle("on", risk === "high");
+  $("low").classList.toggle("on", risk === "low");
+  CATEGORIES.forEach((c) => $("cat-" + c).classList.toggle("on", cats.has(c)));
+  $("save").disabled = !(risk === "low" || (risk === "high" && cats.size > 0));
+  const done = Object.keys(labels).length;
+  $("count").textContent = `${done} / ${items.length}`;
+  $("progress").style.width = `${(100 * done) / items.length}%`;
+}
+
+function setRisk(value) {
+  risk = value;
+  if (value === "low") cats.clear();
+  refresh();
+}
+
+function toggleCategory(c) {
+  cats.has(c) ? cats.delete(c) : cats.add(c);
+  if (cats.size > 0) risk = "high";
+  refresh();
+}
+
+function go(i) {
+  index = Math.max(0, Math.min(items.length - 1, i));
+  render();
+}
+
+function nextUnlabeled() {
+  for (let k = 1; k <= items.length; k++) {
+    const i = (index + k) % items.length;
+    if (!labels[items[i].id]) return go(i);
+  }
+  $("msg").textContent = "Everything is labeled.";
+}
+
+async function save() {
+  if ($("save").disabled) return;
+  const item = items[index];
+  const body = {
+    id: item.id,
+    risk,
+    categories: risk === "low" ? ["none"] : CATEGORIES.filter((c) => cats.has(c)),
+    note: $("note").value,
+    seconds: (Date.now() - shownAt) / 1000,
+  };
+  const res = await fetch("/api/label", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) { $("msg").textContent = data.error; return; }
+  labels[item.id] = { ...data.label, note: data.note };
+  nextUnlabeled();
+}
+
+$("high").onclick = () => setRisk("high");
+$("low").onclick = () => setRisk("low");
+$("save").onclick = save;
+$("prev").onclick = () => go(index - 1);
+$("next").onclick = () => go(index + 1);
+$("unlabeled").onclick = nextUnlabeled;
+
+document.addEventListener("keydown", (e) => {
+  if (e.target === $("note")) {
+    if (e.key === "Enter") { e.preventDefault(); save(); }
+    if (e.key === "Escape") $("note").blur();
+    return;
+  }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "h") setRisk("high");
+  else if (k === "l") setRisk("low");
+  else if (k >= "1" && k <= "5") toggleCategory(CATEGORIES[Number(k) - 1]);
+  else if (k === "enter") save();
+  else if (k === "arrowleft") go(index - 1);
+  else if (k === "arrowright") go(index + 1);
+  else if (k === "u") nextUnlabeled();
+  else if (k === "n") { e.preventDefault(); $("note").focus(); }
+  else return;
+  e.preventDefault();
+});
+
+fetch("/api/items").then((r) => r.json()).then((data) => {
+  items = data.items;
+  labels = data.labels;
+  const first = items.findIndex((item) => !labels[item.id]);
+  go(first === -1 ? 0 : first);
+});
+</script>
+</body>
+</html>

@@ -21,6 +21,9 @@ uv sync --no-group train                             # CPU-only: data, labeling,
 uv run ruff check . && uv run ruff format --check . && uv run pytest
 uv run python -m hunkrisk.collect                    # hunks -> data/hunks/{test,val,train}.jsonl
 uv run python -m hunkrisk.collect --scale 0.1 --only krayin/laravel-crm --out data/smoke
+uv run python -m hunkrisk.label --model deepseek/deepseek-v4.1-flash --input data/hunks/val.jsonl --max-usd 0.05
+uv run python -m hunkrisk.compare <reference.jsonl> <candidate.jsonl>...   # agreement table
+uv run python -m hunkrisk.gold                       # blind gold labeling UI on :8765
 uv run python scripts/smoke_vram.py Qwen/Qwen3.5-2B --bf16
 ```
 

@@ -48,7 +48,15 @@ def parse_label(text: str, *, strict: bool = True) -> Label:
 def validate(obj: dict[str, Any]) -> Label:
     if set(obj) != {"risk", "categories", "reason"}:
         raise InvalidOutput(f"expected keys risk, categories, reason; got {sorted(obj)}")
-    risk, categories, reason = obj["risk"], obj["categories"], obj["reason"]
+    risk, categories = validate_decision(obj["risk"], obj["categories"])
+    reason = obj["reason"]
+    if not isinstance(reason, str) or not reason.strip():
+        raise InvalidOutput("reason must be a non-empty string")
+    return Label(risk, categories, reason.strip())
+
+
+def validate_decision(risk: Any, categories: Any) -> tuple[Risk, tuple[str, ...]]:
+    """Check risk and categories together; shared by model outputs and human gold labels."""
     if risk not in ("high", "low"):
         raise InvalidOutput(f"risk must be high or low, got {risk!r}")
     if not isinstance(categories, list) or not categories:
@@ -61,7 +69,4 @@ def validate(obj: dict[str, Any]) -> Label:
         raise InvalidOutput('low risk must have categories ["none"]')
     if risk == "high" and "none" in categories:
         raise InvalidOutput("high risk can't include none")
-    if not isinstance(reason, str) or not reason.strip():
-        raise InvalidOutput("reason must be a non-empty string")
-    ordered = tuple(c for c in ALLOWED_CATEGORIES if c in categories)  # canonical order
-    return Label(risk, ordered, reason.strip())
+    return risk, tuple(c for c in ALLOWED_CATEGORIES if c in categories)  # canonical order

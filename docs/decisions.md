@@ -10,7 +10,18 @@ A running log of design choices and the reasons behind them, newest at the botto
 - **Diffs come from the GitHub API, not clones.** Only sampled commits are needed. Listing commits (with `path=` filters for targeted sampling) and fetching per-commit diffs avoids cloning multi-gigabyte repositories.
 - **Sampling mixes targeted and random commits.** Targeted commits touch paths or keywords associated with risk (migrations, auth, payments, env and config). Random commits are drawn uniformly from history. Sampling only by keyword would make the keyword baseline look artificially strong and miss the hard cases, like a pricing change in `utils.py` or a permission check inside a controller. The keyword baseline's recall is reported separately on both parts.
 - **The test set is at least 30% `high`.** With ~300 hunks that gives 90+ positives, enough for a usable recall estimate. Since oversampling inflates precision, precision is also reported reweighted to the natural base rate measured on the random sample.
-- **Dropped before labeling:** lockfiles, generated and vendored files, binary diffs, near-duplicate hunks, and hunks over 1,500 tokens.
+- **Collection parameters** live in [`configs/collect.yaml`](../configs/collect.yaml):
+  - **Window:** commits from 2022-01-01 to a fixed cutoff of 2026-10-26, so reruns see the same history.
+  - **Quotas:** 60 hunks per test and validation repo, 150 per train repo, for 300 / 300 / 3,000 in total. Train is collected above the 2,400 target so it can be rebalanced once teacher labels exist.
+  - **Strata:** 60% targeted, 40% random. Targeted commits come from listings filtered by up to six sampled risk-looking paths per category, with the categories interleaved so a busy one (e.g. `config/`) can't crowd out the rest. Random commits come from random history pages, at most ten per page so they spread across time.
+  - **Diversity:** at most three hunks per commit.
+  - **Reproducibility:** randomness is seeded per repository, and API responses are cached on disk.
+- **Dropped before labeling:**
+  - merge commits, bot commits (Dependabot, Renovate) and commits touching more than 50 files
+  - lockfiles, vendored and generated code, translations, snapshots and binary diffs
+  - whitespace-only hunks and near-duplicates (same changed lines, ignoring whitespace and path)
+  - hunks over 1,500 tokens, measured with the Qwen3 tokenizer (the more verbose of the two candidates)
+- **Dedupe runs across splits, test first.** If a hunk appears in both a test and a train repo, it stays in test only.
 
 ### Labels
 

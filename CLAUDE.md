@@ -18,7 +18,9 @@ These protect the evaluation. Breaking one silently invalidates the results.
 ```sh
 uv sync                                              # everything, incl. torch + unsloth
 uv sync --no-group train                             # CPU-only: data, labeling, eval tooling
-uv run ruff check . && uv run ruff format --check .
+uv run ruff check . && uv run ruff format --check . && uv run pytest
+uv run python -m hunkrisk.collect                    # hunks -> data/hunks/{test,val,train}.jsonl
+uv run python -m hunkrisk.collect --scale 0.1 --only krayin/laravel-crm --out data/smoke
 uv run python scripts/smoke_vram.py Qwen/Qwen3.5-2B --bf16
 ```
 

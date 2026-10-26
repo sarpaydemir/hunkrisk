@@ -49,6 +49,7 @@ configs/    source repositories and splits, training configs
 docs/       release bar, labeling guide, decision log
 scripts/    one-off tools (GPU smoke test)
 src/        the hunkrisk package: collection, labeling, training, evaluation
+tests/      unit tests for the pure logic (no network, no GPU)
 data/       local datasets (gitignored), except the human gold labels
 runs/       per-run configs and metrics
 reports/    evaluation tables and error analysis

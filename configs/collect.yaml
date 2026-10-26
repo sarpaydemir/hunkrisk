@@ -1,0 +1,16 @@
+# Parameters for `python -m hunkrisk.collect`. Changing any of these changes the dataset.
+
+seed: 13
+since: "2022-01-01T00:00:00Z" # current framework versions only
+until: "2026-10-26T00:00:00Z" # fixed cutoff, so reruns see the same history
+
+# 5 test, 5 val and 20 train repos: 300 / 300 / 3,000 hunks. Train is collected above the
+# 2,400 target so it can be rebalanced to >= 30% high once teacher labels exist.
+hunks_per_repo: {test: 60, val: 60, train: 150}
+
+targeted_share: 0.6 # the rest comes from random commits
+targeted_paths_per_category: 6 # risk paths sampled per category and repo
+max_hunks_per_commit: 3
+max_files_per_commit: 50 # larger commits are mostly mass refactors or vendoring
+max_tokens: 1500
+tokenizer: Qwen/Qwen3-1.7B # the more verbose of the two candidate tokenizers

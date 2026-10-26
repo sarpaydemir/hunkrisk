@@ -1,0 +1,17 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      # CPU-only: skip the train group so CI doesn't download torch and CUDA.
+      - run: uv sync --locked --no-group train
+      - run: uv run --no-sync ruff check .
+      - run: uv run --no-sync ruff format --check .

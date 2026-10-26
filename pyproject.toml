@@ -1,0 +1,45 @@
+[project]
+name = "hunkrisk"
+version = "0.1.0"
+description = "A small fine-tuned model that flags diff hunks needing close human review"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Sarp Aydemir" }]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "openai",
+    "python-dotenv",
+    "pyyaml",
+    "tqdm",
+    "transformers",
+    "scikit-learn",
+]
+
+[dependency-groups]
+train = [
+    "torch",
+    "unsloth",
+    "trl",
+    "peft",
+    "bitsandbytes",
+    "datasets",
+    "accelerate",
+]
+dev = ["ruff", "pytest"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+# Without this, `uv run` would uninstall the train group on every invocation.
+default-groups = ["dev", "train"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

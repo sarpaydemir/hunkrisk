@@ -19,6 +19,7 @@ from typing import Any
 import numpy as np
 from sklearn.metrics import average_precision_score, roc_auc_score
 
+from hunkrisk.compare import load_labels
 from hunkrisk.metrics import category_f1, risk_metrics
 from hunkrisk.panel import DISAGREEMENTS_PATH, load_gold
 from hunkrisk.schema import InvalidOutput, parse_label
@@ -219,12 +220,17 @@ def ceiling(results: list[tuple[System, dict[str, Any], dict[str, Any]]]) -> tup
     return next((m, i) for s, i, m in results if "(ceiling)" in s.name)
 
 
-def verdict(results: list[tuple[System, dict[str, Any], dict[str, Any]]], provisional: bool) -> str:
-    """One sentence on the published adapter: the fine-tuned model ranking best on validation."""
-    system, info = max(
+def published(results: list[tuple[System, dict[str, Any], dict[str, Any]]]) -> tuple[System, dict]:
+    """The published adapter: the fine-tuned model that ranks best on validation."""
+    return max(
         ((s, i) for s, i, _ in results if s.kind == "local" and "fine-tuned" in s.name),
         key=lambda r: r[1]["val_ap"],
     )
+
+
+def verdict(results: list[tuple[System, dict[str, Any], dict[str, Any]]], provisional: bool) -> str:
+    """One sentence on the published adapter against the release bar."""
+    system, info = published(results)
     m = info["protocol_scores"][THRESHOLD_ON]
     ceiling_m, ceiling_info = ceiling(results)
     gap = 100 * (ceiling_m["f1"] - m["f1"])
@@ -283,8 +289,46 @@ def release_bar(results: list[tuple[System, dict[str, Any], dict[str, Any]]]) ->
     return md_table(header, rows)
 
 
+def tiebreak_sensitivity(results: list[tuple[System, dict[str, Any], dict[str, Any]]],
+                         gold: dict[str, Any], strata: dict[str, str]) -> str:  # fmt: skip
+    """The published adapter against the ceiling for every way the disputed hunks could be
+    settled, so a verdict that hinges on the tie-break says so."""
+    disputed = [i for i in DISAGREEMENTS_PATH.read_text().split() if i in gold]
+    _, info = published(results)
+    adapter = info["protocols"][THRESHOLD_ON][1]
+    ceiling_labels, ceiling_info = decisions(
+        next(s for s, _, _ in results if "(ceiling)" in s.name)
+    )
+    cheap_enough = info["valid"] >= 0.98 and ceiling_info["usd_per_1k"] / info["usd_per_1k"] >= 10
+    options = {f"{TIEBREAK_JUDGE}'s vote (used)": {i: gold[i] for i in disputed}}
+    for judge, _, _ in results:
+        if judge.note == "panel":
+            labels = load_labels(Path(judge.path))
+            options[f"{judge.name}'s label"] = {i: labels[i] for i in disputed}
+    for risk in ("high", "low"):
+        options[f"all `{risk}`"] = {i: {"risk": risk, "categories": []} for i in disputed}
+    rows = []
+    for name, settled in options.items():
+        key = gold | settled
+        m, c = score(key, adapter, strata), score(key, ceiling_labels, strata)
+        gap = 100 * (c["f1"] - m["f1"])
+        met = cheap_enough and m["recall"] >= TARGET_RECALL and gap <= 10
+        rows.append([name, str(sum(g["risk"] == "high" for g in key.values())),
+                     f"{m['recall']:.3f}", f"{m['f1']:.2f}", f"{c['f1']:.2f}", f"{gap:.1f}",
+                     "yes" if met else "no"])  # fmt: skip
+    header = ["Disputed hunks settled by", "`high` hunks", "Adapter recall", "Adapter F1",
+              "Ceiling F1", "F1 gap (points)", "Bar met"]  # fmt: skip
+    return (
+        f"## Release bar: sensitivity to the tie-break\n\n"
+        f"The two judges disagree on {len(disputed)} hunks, and {TIEBREAK_JUDGE} settles them. "
+        "The published adapter against the ceiling if they were settled another way:\n\n"
+        f"{md_table(header, rows)}\n"
+    )
+
+
 def details(results: list[tuple[System, dict[str, Any], dict[str, Any]]], gold: dict[str, Any],
             strata: dict[str, str]) -> str:  # fmt: skip
+    tiebreaks = any(g["source"] == "tiebreak" for g in gold.values())
     categories = list(results[0][2]["categories"])
     per_category = md_table(["System", *categories], [
         [s.name, *("n/a" if v is None else f"{v:.2f}" for v in m["categories"].values())]
@@ -340,7 +384,7 @@ def details(results: list[tuple[System, dict[str, Any], dict[str, Any]]], gold: 
         "layers run on PyTorch's reference implementation there, since the fast kernels are "
         f"GPU-only.\n\n{latency}\n\n"
         f"## Release bar\n\n{release_bar(results)}\n"
-    )
+    ) + (f"\n{tiebreak_sensitivity(results, gold, strata)}" if tiebreaks else "")
 
 
 def fill(text: str, marker: str, content: str) -> str:

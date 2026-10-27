@@ -36,7 +36,7 @@ def messages(file: str, hunk: str) -> list[dict[str, str]]:
     ]
 
 
-# The fine-tuned model learns the rules from ~3,000 labeled examples, so it gets a short
+# The fine-tuned model learns the rules from thousands of labeled examples, so it gets a short
 # instruction instead of the full guide. That keeps inference about 5x cheaper per hunk.
 SHORT_SYSTEM = (
     "Classify the diff hunk for code review risk. Reply with one JSON object: "

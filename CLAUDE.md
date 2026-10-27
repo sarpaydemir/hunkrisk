@@ -28,9 +28,11 @@ uv run python -m hunkrisk.panel <val judge a> <val judge b> --out data/labels/va
 uv run python -m hunkrisk.gold --ids data/gold/disagreements.txt  # blind adjudication UI on :8765
 uv run python -m hunkrisk.heuristic --split test
 uv run python -m hunkrisk.train configs/train/qwen3.5-2b-lora.yaml
-uv run python -m hunkrisk.evaluate --model runs/<run>/adapter --split test --name ft-qwen3.5-2b
+uv run python -m hunkrisk.evaluate --model runs/<run>/adapter --name ft-qwen3.5-2b   # val + test
+uv run python -m hunkrisk.evaluate --model runs/<run>/adapter --device cpu --limit 20 --splits test --name ft-qwen3.5-2b   # CPU latency
 uv run python -m hunkrisk.report                     # reports/results.md + README results
 uv run python -m hunkrisk.errors data/predictions/<name> --threshold <t>   # test errors, for reading
+uv run python -m hunkrisk.predict examples/sample.diff --model runs/<run>/adapter   # score a diff
 uv run python scripts/smoke_vram.py Qwen/Qwen3.5-2B --bf16
 ```
 

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from sklearn.metrics import average_precision_score, roc_auc_score
 
 from hunkrisk.metrics import category_f1, risk_metrics
 from hunkrisk.panel import DISAGREEMENTS_PATH, load_gold
@@ -117,6 +118,10 @@ def decisions(system: System) -> tuple[dict[str, dict[str, Any]], dict[str, Any]
         threshold = tune_threshold(val, read_jsonl(path))
         protocols[reference] = (threshold, thresholded(rows, generated, threshold))
     threshold, labels = protocols[THRESHOLD_ON]
+    # Model selection uses validation only: ranking quality against the panel's labels.
+    selection = read_jsonl(VAL_REFERENCES["panel"])
+    is_high = [selection[i]["label"]["risk"] == "high" for i in selection]
+    p_high = [val[i]["p_high"] for i in selection]
     latency = float(np.mean([r["latency_s"] for r in rows.values()]))
     summary = json.loads((folder / "test.summary.json").read_text())
     gpu_seconds = summary.get("throughput_s_per_hunk", latency)  # batched when measured
@@ -126,6 +131,8 @@ def decisions(system: System) -> tuple[dict[str, dict[str, Any]], dict[str, Any]
         "latency": latency,
         "threshold": threshold,
         "protocols": protocols,
+        "val_ap": float(average_precision_score(is_high, p_high)),
+        "val_auc": float(roc_auc_score(is_high, p_high)),
         "as_generated": generated,
     }
     return labels, info
@@ -253,6 +260,9 @@ def details(results: list[tuple[System, dict[str, Any], dict[str, Any]]], gold: 
         m = score(gold, i["as_generated"], strata)
         plain.append([s.name, f"{m['recall']:.2f}", f"{m['precision']:.2f}", f"{m['f1']:.2f}",
                       f"{i['valid']:.1%}"])  # fmt: skip
+    selection = md_table(["System", "Average precision", "ROC AUC"], [
+        [s.name, f"{i['val_ap']:.3f}", f"{i['val_auc']:.3f}"] for s, i in local
+    ])  # fmt: skip
     plain_table = md_table(["System", "Recall", "Precision", "F1", "Valid JSON (strict)"], plain)
     return (
         f"## Per-category F1\n\n{per_category}\n\n"
@@ -264,6 +274,9 @@ def details(results: list[tuple[System, dict[str, Any], dict[str, Any]]], gold: 
         "tuned it against the teacher's validation labels; it is now tuned against the panel's, "
         "which are made the same way as the test labels (see "
         f"[decisions](../docs/decisions.md)).\n\n{protocols}\n\n"
+        "## Local models: validation ranking\n\n"
+        "P(high) against panel-labeled validation, over all thresholds. The published adapter is "
+        f"the fine-tuned model with the higher average precision here.\n\n{selection}\n\n"
         "## Local models: plain decoding\n\n"
         "The model's own `risk` field with no threshold, parsed leniently (a code fence is "
         f"tolerated); the valid column is strict, as in the release bar.\n\n{plain_table}\n\n"

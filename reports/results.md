@@ -62,6 +62,17 @@ Each threshold is the highest one that reaches 0.90 recall on validation. The fi
 | **Qwen3.5-2B, fine-tuned** | panel-labeled validation | 0.107 | 0.87 | 0.48 | 0.62 |
 | **Qwen3.5-2B, fine-tuned** | teacher-labeled validation | 0.148 | 0.85 | 0.49 | 0.62 |
 
+## Local models: validation ranking
+
+P(high) against panel-labeled validation, over all thresholds. The published adapter is the fine-tuned model with the higher average precision here.
+
+| System | Average precision | ROC AUC |
+|---|---|---|
+| Qwen3-1.7B, zero-shot | 0.168 | 0.616 |
+| Qwen3.5-2B, zero-shot | 0.421 | 0.811 |
+| **Qwen3-1.7B, fine-tuned** | 0.654 | 0.891 |
+| **Qwen3.5-2B, fine-tuned** | 0.708 | 0.914 |
+
 ## Local models: plain decoding
 
 The model's own `risk` field with no threshold, parsed leniently (a code fence is tolerated); the valid column is strict, as in the release bar.

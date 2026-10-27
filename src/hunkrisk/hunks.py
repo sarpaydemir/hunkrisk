@@ -40,6 +40,32 @@ def split_patch(file: str, patch: str) -> list[Hunk]:
     return [Hunk(file, i, "\n".join(lines)) for i, lines in enumerate(groups)]
 
 
+def split_diff(diff: str) -> list[Hunk]:
+    """Split `git diff` output into hunks, across files.
+
+    `---`/`+++` lines are only headers before a file's first hunk; inside a hunk they are
+    content (a removed `-- comment` line, for example).
+    """
+    hunks: list[Hunk] = []
+    file, patch, in_hunks = "", [], False
+
+    def flush() -> None:
+        if file and patch:
+            hunks.extend(split_patch(file, "\n".join(patch)))
+
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            flush()
+            file, patch, in_hunks = line.split(" b/", 1)[-1], [], False
+        elif not in_hunks and line.startswith("+++ ") and line != "+++ /dev/null":
+            file = line[4:].removeprefix("b/")
+        elif HUNK_HEADER.match(line) or in_hunks:
+            in_hunks = True
+            patch.append(line)
+    flush()
+    return hunks
+
+
 def is_excluded(path: str) -> bool:
     return EXCLUDED_PATH.search(path) is not None
 

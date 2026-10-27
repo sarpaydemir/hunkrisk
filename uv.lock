@@ -626,6 +626,7 @@ version = "0.1.0"
 source = { editable = "." }
 default-groups = ["dev", "train"]
 dependencies = [
+    { name = "huggingface-hub" },
     { name = "openai" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
@@ -652,6 +653,7 @@ train = [
 
 [package.metadata]
 requires-dist = [
+    { name = "huggingface-hub" },
     { name = "openai" },
     { name = "python-dotenv" },
     { name = "pyyaml" },

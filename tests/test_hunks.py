@@ -1,6 +1,13 @@
 import pytest
 
-from hunkrisk.hunks import Hunk, dedupe_key, has_meaningful_change, is_excluded, split_patch
+from hunkrisk.hunks import (
+    Hunk,
+    dedupe_key,
+    has_meaningful_change,
+    is_excluded,
+    split_diff,
+    split_patch,
+)
 
 PATCH = """\
 @@ -1,3 +1,4 @@
@@ -86,3 +93,30 @@ def test_dedupe_key_distinguishes_additions_from_removals():
     added = Hunk("a.py", 0, "@@ -1 +1 @@\n+x = 1")
     removed = Hunk("a.py", 0, "@@ -1 +1 @@\n-x = 1")
     assert dedupe_key(added) != dedupe_key(removed)
+
+
+DIFF = """\
+diff --git a/db/schema.sql b/db/schema.sql
+index 1111111..2222222 100644
+--- a/db/schema.sql
++++ b/db/schema.sql
+@@ -1,2 +1,1 @@
+--- legacy column
+ ALTER TABLE users ADD COLUMN email text;
+diff --git a/old.py b/old.py
+deleted file mode 100644
+--- a/old.py
++++ /dev/null
+@@ -1 +0,0 @@
+-x = 1
+diff --git a/logo.png b/logo.png
+Binary files a/logo.png and b/logo.png differ
+"""
+
+
+def test_split_diff_splits_files_and_keeps_header_like_content():
+    hunks = split_diff(DIFF)
+    assert [h.file for h in hunks] == ["db/schema.sql", "old.py"]
+    # A removed SQL comment starts with "---" but is content, not a file header.
+    assert hunks[0].text.splitlines()[1] == "--- legacy column"
+    assert hunks[1].text.splitlines() == ["@@ -1 +0,0 @@", "-x = 1"]

@@ -124,11 +124,14 @@ def decisions(system: System) -> tuple[dict[str, dict[str, Any]], dict[str, Any]
     p_high = [val[i]["p_high"] for i in selection]
     latency = float(np.mean([r["latency_s"] for r in rows.values()]))
     summary = json.loads((folder / "test.summary.json").read_text())
+    cpu = folder / "test-cpu.summary.json"  # measured on a subset of test
     gpu_seconds = summary.get("throughput_s_per_hunk", latency)  # batched when measured
     info = {
         "valid": sum(r["label"] is not None for r in rows.values()) / len(rows),
         "usd_per_1k": 1000 * gpu_seconds / 3600 * GPU_USD_PER_HOUR,
         "latency": latency,
+        "gpu": summary,
+        "cpu": json.loads(cpu.read_text()) if cpu.exists() else None,
         "threshold": threshold,
         "protocols": protocols,
         "val_ap": float(average_precision_score(is_high, p_high)),
@@ -179,6 +182,10 @@ def fmt_cost(usd: float) -> str:
     return "$0" if usd == 0 else f"${usd:.3f}" if usd < 1 else f"${usd:.2f}"
 
 
+def seconds(summary: dict[str, Any]) -> str:
+    return f"{summary['latency_mean_s']:.2f} s ({summary['latency_p95_s']:.2f} s)"
+
+
 def md_table(header: list[str], rows: list[list[str]]) -> str:
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
     return "\n".join(lines + ["| " + " | ".join(row) + " |" for row in rows])
@@ -206,9 +213,47 @@ def main_table(results: list[tuple[System, dict[str, Any], dict[str, Any]]]) -> 
 REFERENCE_NAMES = {"panel": "panel-labeled validation", "teacher": "teacher-labeled validation"}
 
 
+def ceiling(results: list[tuple[System, dict[str, Any], dict[str, Any]]]) -> tuple[dict, dict]:
+    return next((m, i) for s, i, m in results if "(ceiling)" in s.name)
+
+
+def verdict(results: list[tuple[System, dict[str, Any], dict[str, Any]]], provisional: bool) -> str:
+    """One sentence on the published adapter: the fine-tuned model ranking best on validation."""
+    system, info = max(
+        ((s, i) for s, i, _ in results if s.kind == "local" and "fine-tuned" in s.name),
+        key=lambda r: r[1]["val_ap"],
+    )
+    m = info["protocol_scores"][THRESHOLD_ON]
+    ceiling_m, ceiling_info = ceiling(results)
+    gap = 100 * (ceiling_m["f1"] - m["f1"])
+    times = ceiling_info["usd_per_1k"] / info["usd_per_1k"]
+    f1s = f"{m['f1']:.2f} vs {ceiling_m['f1']:.2f}"
+    criteria = [
+        (m["recall"] >= TARGET_RECALL, f"recall {m['recall']:.2f}",
+         f"its recall is {m['recall']:.2f}, below 0.90"),
+        (info["valid"] >= 0.98, f"{info['valid']:.0%} valid JSON",
+         f"only {info['valid']:.1%} of its answers are valid JSON"),
+        (times >= 10, f"{times:.0f}× lower cost than the ceiling",
+         f"it is only {times:.1f}× cheaper than the ceiling"),
+        (gap <= 10, f"F1 within {gap:.1f} points of the ceiling ({f1s})",
+         f"its F1 is {gap:.1f} points below the ceiling's ({f1s}), where the bar allows 10"),
+    ]  # fmt: skip
+    met = [text for ok, text, _ in criteria if ok]
+    missed = [text for ok, _, text in criteria if not ok]
+    status = "not met" if missed else "met"
+    sentence = f"The published adapter ({system.name.strip('*')}) has {and_join(met)}"
+    if missed:
+        sentence += f", but {and_join(missed)}"
+    return f"**Release bar{' (provisional)' if provisional else ''}: {status}.** {sentence}."
+
+
+def and_join(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+
+
 def release_bar(results: list[tuple[System, dict[str, Any], dict[str, Any]]]) -> str:
     """Every fine-tuned model against the bar, under each threshold reference."""
-    ceiling_m, ceiling_info = next((m, i) for s, i, m in results if "(ceiling)" in s.name)
+    ceiling_m, ceiling_info = ceiling(results)
     floor = ceiling_m["f1"] - 0.10
     rows = []
     for system, info, _ in results:
@@ -264,6 +309,11 @@ def details(results: list[tuple[System, dict[str, Any], dict[str, Any]]], gold: 
         [s.name, f"{i['val_ap']:.3f}", f"{i['val_auc']:.3f}"] for s, i in local
     ])  # fmt: skip
     plain_table = md_table(["System", "Recall", "Precision", "F1", "Valid JSON (strict)"], plain)
+    latency = md_table(["System", "GPU, one hunk", "GPU, batched", "CPU, one hunk"], [
+        [s.name, seconds(i["gpu"]), f"{i['gpu']['throughput_s_per_hunk']:.2f} s",
+         f"{seconds(i['cpu'])}, {i['cpu']['n']} hunks" if i["cpu"] else "not measured"]
+        for s, i in local
+    ])  # fmt: skip
     return (
         f"## Per-category F1\n\n{per_category}\n\n"
         "## Recall by sampling stratum\n\n"
@@ -276,12 +326,26 @@ def details(results: list[tuple[System, dict[str, Any], dict[str, Any]]], gold: 
         f"[decisions](../docs/decisions.md)).\n\n{protocols}\n\n"
         "## Local models: validation ranking\n\n"
         "P(high) against panel-labeled validation, over all thresholds. The published adapter is "
-        f"the fine-tuned model with the higher average precision here.\n\n{selection}\n\n"
+        f"the fine-tuned model with the highest average precision here.\n\n{selection}\n\n"
         "## Local models: plain decoding\n\n"
         "The model's own `risk` field with no threshold, parsed leniently (a code fence is "
         f"tolerated); the valid column is strict, as in the release bar.\n\n{plain_table}\n\n"
+        "## Local models: latency\n\n"
+        "Seconds per hunk with greedy decoding of the full answer, mean (p95). One hunk: one "
+        "request at a time, as in interactive use. Batched: length-sorted batches of up to 16, "
+        "which the cost column is based on. GPU: RTX 3060 Laptop (6 GB). CPU: the same laptop's "
+        "Ryzen 7 5800H (8 cores), bf16, on the first test hunks; Qwen3.5's linear-attention "
+        "layers run on PyTorch's reference implementation there, since the fast kernels are "
+        f"GPU-only.\n\n{latency}\n\n"
         f"## Release bar\n\n{release_bar(results)}\n"
     )
+
+
+def fill(text: str, marker: str, content: str) -> str:
+    """Replace what sits between the <!-- marker:start --> and <!-- marker:end --> comments."""
+    start, end = f"<!-- {marker}:start -->", f"<!-- {marker}:end -->"
+    pattern = re.compile(f"{re.escape(start)}.*{re.escape(end)}", re.DOTALL)
+    return pattern.sub(lambda _: f"{start}\n{content}\n{end}", text)
 
 
 def main() -> None:
@@ -317,16 +381,20 @@ def main() -> None:
             "human label and are left out. " + header
         )
     table = main_table(results)
+    outcome = verdict(results, provisional=bool(pending))
 
     RESULTS.parent.mkdir(exist_ok=True)
-    RESULTS.write_text(f"# Results\n\n{header}\n\n{table}\n\n{details(results, gold, strata)}")
-    block = (
-        f"<!-- results:start -->\n{header}\n\n{table}\n\n"
-        "Full breakdown: [reports/results.md](reports/results.md).\n<!-- results:end -->"
+    RESULTS.write_text(
+        f"# Results\n\n{outcome}\n\n{header}\n\n{table}\n\n{details(results, gold, strata)}"
     )
-    pattern = re.compile(r"<!-- results:start -->.*<!-- results:end -->", re.DOTALL)
-    README.write_text(pattern.sub(lambda _: block, README.read_text()))
-    print(f"{header}\n\n{table}")
+    readme = fill(README.read_text(), "verdict", outcome)
+    readme = fill(
+        readme,
+        "results",
+        f"{header}\n\n{table}\n\nFull breakdown: [reports/results.md](reports/results.md).",
+    )
+    README.write_text(readme)
+    print(f"{outcome}\n\n{header}\n\n{table}")
 
 
 if __name__ == "__main__":

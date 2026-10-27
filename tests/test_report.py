@@ -1,6 +1,6 @@
 import pytest
 
-from hunkrisk.report import md_table, score, tune_threshold
+from hunkrisk.report import System, fill, md_table, score, tune_threshold, verdict
 
 
 def label(risk, categories=None):
@@ -41,3 +41,27 @@ def test_threshold_only_counts_hunks_the_reference_labels():
     val = {f"h{i}": {"p_high": (i + 1) / 10} for i in range(10)} | {"x": {"p_high": 0.01}}
     # "x" has no reference label (a panel disagreement), so it can't drag the threshold down.
     assert tune_threshold(val, reference) == pytest.approx(0.2)
+
+
+def test_fill_replaces_only_between_markers():
+    text = "intro\n<!-- x:start -->\nold\n<!-- x:end -->\noutro"
+    assert fill(text, "x", "new") == "intro\n<!-- x:start -->\nnew\n<!-- x:end -->\noutro"
+
+
+def fine_tuned(name, val_ap, recall, f1, usd_per_1k=0.04):
+    info = {"val_ap": val_ap, "valid": 1.0, "usd_per_1k": usd_per_1k,
+            "protocol_scores": {"panel": {"recall": recall, "f1": f1}}}  # fmt: skip
+    return System(f"**{name}, fine-tuned**", "local", ""), info, {}
+
+
+def test_verdict_judges_the_adapter_that_ranks_best_on_validation():
+    results = [
+        fine_tuned("A", val_ap=0.70, recall=0.95, f1=0.80),
+        fine_tuned("B", val_ap=0.80, recall=0.91, f1=0.70),
+        (System("Kimi (ceiling)", "api", ""), {"usd_per_1k": 1.2}, {"f1": 0.82}),
+    ]
+    text = verdict(results, provisional=True)
+    assert text.startswith("**Release bar (provisional): not met.**")
+    assert "The published adapter (B, fine-tuned) has" in text
+    assert "12.0 points below the ceiling's (0.70 vs 0.82), where the bar allows 10" in text
+    assert "recall 0.91, 100% valid JSON and 30× lower cost than the ceiling" in text

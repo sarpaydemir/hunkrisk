@@ -1,0 +1,18 @@
+{
+  "revision": "87074df0c392bfc05fe5e1939f461428af6069f4-dirty",
+  "datasets": {
+    "train_hunks": "e8ef5dd552d81bf0e48a23265c4ea4f85ce100f3f5c3a238241cfe05ca735c08",
+    "train_labels": "a2ff28625f66fcbee8273f7d7194ed9c609171012ae8275c8f311f246cb3c3a9",
+    "val_hunks": "66e8a098bb854d36c6c19235b0c06e32cbaeb4860310c8c0121626468740ac7e",
+    "val_labels": "4e7fcdf287a04c7a371117c9d8192fb06966579511d4e980fba42574d8020c44"
+  },
+  "train_examples": 2993,
+  "train_high_share": 0.1868,
+  "val_examples": 300,
+  "best_eval_loss": 0.7411378622055054,
+  "best_checkpoint": "runs/20261027-0154-qwen3-1.7b-qlora/checkpoints/checkpoint-360",
+  "steps": 376,
+  "minutes": 33.0,
+  "peak_vram_gb": 2.15,
+  "revision_note": "The working tree differed from 87074df only by untracked docs and a report test; no tracked file was modified."
+}

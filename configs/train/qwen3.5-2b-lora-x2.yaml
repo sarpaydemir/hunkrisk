@@ -1,0 +1,9 @@
+# Same model and recipe as qwen3.5-2b-lora.yaml, trained on the doubled train set
+# (configs/collect-train-x2.yaml). See docs/decisions.md, 2026-10-27.
+name: qwen3.5-2b-lora-x2
+model: Qwen/Qwen3.5-2B
+load_in_4bit: false
+batch_size: 1
+grad_accum: 16
+train_hunks: data/hunks-x2/train.jsonl
+train_labels: data/labels/teacher-x2/train.jsonl

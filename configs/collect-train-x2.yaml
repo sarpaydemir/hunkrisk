@@ -1,0 +1,13 @@
+# Same as collect.yaml with twice the train quota; see docs/decisions.md (2026-10-27).
+# Test and val quotas are unchanged, so those splits and the deduplication against them are too.
+
+seed: 13
+since: "2022-01-01T00:00:00Z"
+until: "2026-10-26T00:00:00Z"
+hunks_per_repo: {test: 60, val: 60, train: 300}
+targeted_share: 0.6
+targeted_paths_per_category: 6
+max_hunks_per_commit: 3
+max_files_per_commit: 50
+max_tokens: 1500
+tokenizer: Qwen/Qwen3-1.7B

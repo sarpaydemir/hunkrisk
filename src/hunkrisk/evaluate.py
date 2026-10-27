@@ -12,6 +12,7 @@ costs nothing extra; only when a model wanders off the format is a forced-prefix
 import argparse
 import json
 import statistics
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -33,12 +34,29 @@ def load(model_name: str, device: str, load_in_4bit: bool) -> tuple[Any, Any]:
         )
         FastModel.for_inference(model)
     else:
-        from peft import AutoPeftModelForCausalLM
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        # transformers picks flash-linear-attention's kernels at import time whenever the package
+        # is installed, but they are Triton (GPU-only); hiding it selects the PyTorch path.
+        sys.modules["fla"] = None  # type: ignore[assignment]
+        from peft import PeftConfig, PeftModel
+        from transformers import (
+            AutoConfig,
+            AutoModelForCausalLM,
+            AutoModelForImageTextToText,
+            AutoTokenizer,
+        )
 
         is_adapter = (Path(model_name) / "adapter_config.json").exists()
-        loader = AutoPeftModelForCausalLM if is_adapter else AutoModelForCausalLM
-        model = loader.from_pretrained(model_name, dtype=torch.bfloat16).eval()
+        base = model_name
+        if is_adapter:
+            base = PeftConfig.from_pretrained(model_name).base_model_name_or_path
+        # Qwen3.5 is multimodal, and its causal-LM class is a text-only variant with different
+        # module names: a LoRA trained on the full model silently fails to attach to it.
+        multimodal = hasattr(AutoConfig.from_pretrained(base), "vision_config")
+        loader = AutoModelForImageTextToText if multimodal else AutoModelForCausalLM
+        model = loader.from_pretrained(base, dtype=torch.bfloat16)
+        if is_adapter:
+            model = PeftModel.from_pretrained(model, model_name)
+        model.eval()
         processor = AutoTokenizer.from_pretrained(model_name)
     return model, getattr(processor, "tokenizer", processor)
 

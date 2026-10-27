@@ -41,11 +41,15 @@ Set before training ([full text](docs/release-bar.md)):
 ## Results
 
 <!-- results:start -->
-**Provisional:** 23 hunks where the two judges disagreed still need a human label and are left out. Scored on 277 test hunks from 5 held-out repositories (46 `high`). Local models use a P(high) threshold tuned on validation; API models are scored as returned. † Panel member: it helped write the answer key, so its scores are inflated.
+**Provisional:** 23 hunks where the two judges disagreed still need a human label and are left out. Scored on 277 test hunks from 5 held-out repositories (46 `high`). Local models use a P(high) threshold tuned on panel-labeled validation; API models are scored as returned. † Panel member: it helped write the answer key, so its scores are inflated.
 
 | System | Recall (95% CI) | Precision | Precision at base rate | F1 (95% CI) | Valid JSON | Cost / 1k hunks | Latency (GPU) |
 |---|---|---|---|---|---|---|---|
 | Keyword/path heuristic | 0.78 (0.65–0.90) | 0.35 | 0.33 | 0.48 (0.37–0.57) | 100.0% | $0 | n/a |
+| Qwen3-1.7B, zero-shot | 0.96 (0.88–1.00) | 0.21 | 0.20 | 0.35 (0.26–0.42) | 0.0% | $0.120 | 2.01 s |
+| Qwen3.5-2B, zero-shot | 0.87 (0.76–0.96) | 0.22 | 0.20 | 0.35 (0.26–0.43) | 98.7% | $0.087 | 1.42 s |
+| **Qwen3-1.7B, fine-tuned** | 0.93 (0.86–1.00) | 0.32 | 0.30 | 0.47 (0.37–0.56) | 100.0% | $0.044 | 2.71 s |
+| **Qwen3.5-2B, fine-tuned** | 0.87 (0.76–0.96) | 0.48 | 0.45 | 0.62 (0.50–0.70) | 100.0% | $0.037 | 2.17 s |
 | Jev 1.14 (decision API) | 0.80 (0.69–0.91) | 0.84 | 0.83 | 0.82 (0.73–0.90) | n/a | $0.088 | n/a |
 | DeepSeek V4.1 Flash (teacher) | 0.85 (0.74–0.95) | 0.93 | 0.92 | 0.89 (0.81–0.95) | n/a | $0.025 | n/a |
 | Kimi K3.1 Pro (ceiling) | 0.91 (0.83–0.98) | 0.74 | 0.72 | 0.82 (0.72–0.89) | n/a | $1.19 | n/a |

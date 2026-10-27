@@ -3,9 +3,10 @@
     uv run python -m hunkrisk.report
 
 Writes reports/results.md and the results section of README.md. Local models are scored with a
-P(high) threshold tuned on validation (against teacher labels) to reach the release bar's recall,
-then applied unchanged to test. Results are marked provisional while any panel disagreement is
-still waiting for a human label.
+P(high) threshold tuned on validation to reach the release bar's recall, then applied unchanged
+to test. The threshold is tuned against the panel's validation labels, made the same way as the
+test labels; the first runs used teacher labels, and both are reported. Results are marked
+provisional while any panel disagreement is still waiting for a human label.
 """
 
 import json
@@ -18,12 +19,18 @@ import numpy as np
 
 from hunkrisk.metrics import category_f1, risk_metrics
 from hunkrisk.panel import DISAGREEMENTS_PATH, load_gold
+from hunkrisk.schema import InvalidOutput, parse_label
 
 GPU_USD_PER_HOUR = 0.40  # assumed rental price of a comparable GPU (see release bar)
 TARGET_RECALL = 0.90
 BOOTSTRAP = 1000
 README = Path("README.md")
 RESULTS = Path("reports/results.md")
+VAL_REFERENCES = {
+    "panel": Path("data/labels/val-panel/panel.jsonl"),
+    "teacher": Path("data/labels/teacher/val.jsonl"),
+}
+THRESHOLD_ON = "panel"  # the first runs used "teacher"; see docs/decisions.md, 2026-10-27
 
 
 @dataclass(frozen=True)
@@ -40,6 +47,7 @@ SYSTEMS = [
     System("Qwen3.5-2B, zero-shot", "local", "data/predictions/qwen3.5-2b-zeroshot"),
     System("**Qwen3-1.7B, fine-tuned**", "local", "data/predictions/ft-qwen3-1.7b"),
     System("**Qwen3.5-2B, fine-tuned**", "local", "data/predictions/ft-qwen3.5-2b"),
+    System("**Qwen3.5-2B, fine-tuned, 2× data**", "local", "data/predictions/ft-qwen3.5-2b-x2"),
     System("Jev 1.14 (decision API)", "api", "data/labels/test/jev-1.14.jsonl"),
     System("DeepSeek V4.1 Flash (teacher)", "api", "data/labels/test/deepseek-v4.1-flash.jsonl"),
     System("Kimi K3.1 Pro (ceiling)", "api", "data/labels/test/kimi-k3.1-pro.jsonl"),
@@ -53,12 +61,39 @@ def read_jsonl(path: Path) -> dict[str, dict[str, Any]]:
 
 
 def tune_threshold(val: dict[str, dict[str, Any]], reference: dict[str, dict[str, Any]]) -> float:
-    """Highest P(high) threshold that still reaches the target recall on validation."""
+    """Highest P(high) threshold that still reaches the target recall on validation.
+
+    Only hunks with a reference label count; the panel reference leaves out its disagreements.
+    """
     positives = sorted(
-        (val[i]["p_high"] for i in val if reference[i]["label"]["risk"] == "high"), reverse=True
+        (val[i]["p_high"] for i in reference if reference[i]["label"]["risk"] == "high"),
+        reverse=True,
     )
     needed = int(np.ceil(TARGET_RECALL * len(positives)))
     return positives[needed - 1]
+
+
+def as_generated(row: dict[str, Any]) -> dict[str, Any]:
+    """The model's own answer, leniently parsed so a code-fenced reply still counts here."""
+    try:
+        return parse_label(row["raw"], strict=False).to_json()
+    except InvalidOutput:
+        return {"risk": "low", "categories": []}
+
+
+def thresholded(
+    rows: dict[str, dict[str, Any]], generated: dict[str, dict[str, Any]], threshold: float
+) -> dict[str, dict[str, Any]]:
+    """Risk from P(high) at the threshold; categories from the model's own answer."""
+    labels = {}
+    for i, r in rows.items():
+        high = r["p_high"] >= threshold
+        categories = generated[i]["categories"] if generated[i]["risk"] == "high" else []
+        labels[i] = {
+            "risk": "high" if high else "low",
+            "categories": categories if high else ["none"],
+        }
+    return labels
 
 
 def decisions(system: System) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
@@ -75,17 +110,13 @@ def decisions(system: System) -> tuple[dict[str, dict[str, Any]], dict[str, Any]
         info = {"valid": 1.0, "usd_per_1k": 0.0, "latency": None}
         return {i: r["label"] for i, r in rows.items()}, info
 
-    threshold = tune_threshold(read_jsonl(folder / "val.jsonl"), read_jsonl(
-        Path("data/labels/teacher/val.jsonl")))  # fmt: skip
-    labels = {}
-    for i, r in rows.items():
-        generated = r["label"] or {"risk": "low", "categories": []}
-        high = r["p_high"] >= threshold
-        categories = generated["categories"] if generated["risk"] == "high" else []
-        labels[i] = {
-            "risk": "high" if high else "low",
-            "categories": categories if high else ["none"],
-        }
+    val = read_jsonl(folder / "val.jsonl")
+    generated = {i: as_generated(r) for i, r in rows.items()}
+    protocols = {}
+    for reference, path in VAL_REFERENCES.items():
+        threshold = tune_threshold(val, read_jsonl(path))
+        protocols[reference] = (threshold, thresholded(rows, generated, threshold))
+    threshold, labels = protocols[THRESHOLD_ON]
     latency = float(np.mean([r["latency_s"] for r in rows.values()]))
     summary = json.loads((folder / "test.summary.json").read_text())
     gpu_seconds = summary.get("throughput_s_per_hunk", latency)  # batched when measured
@@ -94,9 +125,8 @@ def decisions(system: System) -> tuple[dict[str, dict[str, Any]], dict[str, Any]
         "usd_per_1k": 1000 * gpu_seconds / 3600 * GPU_USD_PER_HOUR,
         "latency": latency,
         "threshold": threshold,
-        "as_generated": {
-            i: r["label"] or {"risk": "low", "categories": []} for i, r in rows.items()
-        },
+        "protocols": protocols,
+        "as_generated": generated,
     }
     return labels, info
 
@@ -166,21 +196,35 @@ def main_table(results: list[tuple[System, dict[str, Any], dict[str, Any]]]) -> 
     return md_table(header, rows)
 
 
+REFERENCE_NAMES = {"panel": "panel-labeled validation", "teacher": "teacher-labeled validation"}
+
+
 def release_bar(results: list[tuple[System, dict[str, Any], dict[str, Any]]]) -> str:
+    """Every fine-tuned model against the bar, under each threshold reference."""
     ceiling_m, ceiling_info = next((m, i) for s, i, m in results if "(ceiling)" in s.name)
+    floor = ceiling_m["f1"] - 0.10
     rows = []
-    for system, info, m in results:
+    for system, info, _ in results:
         if system.kind != "local" or "fine-tuned" not in system.name:
             continue
         cheaper = info["usd_per_1k"] * 10 <= ceiling_info["usd_per_1k"]
-        checks = [
-            m["recall"] >= TARGET_RECALL,
-            info["valid"] >= 0.98,
-            cheaper and m["f1"] >= ceiling_m["f1"] - 0.10,
-        ]
-        marks = ["yes" if c else "no" for c in checks]
-        rows.append([system.name, *marks, f"**{'yes' if all(checks) else 'no'}**"])
-    header = ["System", "Recall ≥ 0.90", "Valid ≥ 98%",
+        for reference, m in info["protocol_scores"].items():
+            checks = [
+                (m["recall"] >= TARGET_RECALL, f"{m['recall']:.2f}"),
+                (info["valid"] >= 0.98, f"{info['valid']:.1%}"),
+                (cheaper and m["f1"] >= floor, f"F1 {m['f1']:.2f} vs ≥ {floor:.2f}"),
+            ]
+            marks = [f"{'yes' if ok else 'no'} ({value})" for ok, value in checks]
+            passed = all(ok for ok, _ in checks)
+            rows.append(
+                [
+                    system.name,
+                    REFERENCE_NAMES[reference],
+                    *marks,
+                    f"**{'yes' if passed else 'no'}**",
+                ]
+            )
+    header = ["System", "Threshold tuned on", "Recall ≥ 0.90", "Valid ≥ 98%",
               "≥ 10× cheaper at ≤ 10 pts lower F1 than the ceiling", "Pass"]  # fmt: skip
     return md_table(header, rows)
 
@@ -197,18 +241,32 @@ def details(results: list[tuple[System, dict[str, Any], dict[str, Any]]], gold: 
          f"{m['recall_by_stratum']['random']:.2f}"]
         for s, _, m in results
     ])  # fmt: skip
-    local = md_table(["System", "Threshold", "Recall as generated", "Valid JSON"], [
-        [s.name, f"{i['threshold']:.3f}", f"{score(gold, i['as_generated'], strata)['recall']:.2f}",
-         f"{i['valid']:.1%}"]
-        for s, i, _ in results if s.kind == "local"
+    local = [(s, i) for s, i, _ in results if s.kind == "local"]
+    header = ["System", "Threshold tuned on", "Threshold", "Recall", "Precision", "F1"]
+    protocols = md_table(header, [
+        [s.name, REFERENCE_NAMES[ref], f"{i['protocols'][ref][0]:.3f}", f"{m['recall']:.2f}",
+         f"{m['precision']:.2f}", f"{m['f1']:.2f}"]
+        for s, i in local for ref, m in i["protocol_scores"].items()
     ])  # fmt: skip
+    plain = []
+    for s, i in local:
+        m = score(gold, i["as_generated"], strata)
+        plain.append([s.name, f"{m['recall']:.2f}", f"{m['precision']:.2f}", f"{m['f1']:.2f}",
+                      f"{i['valid']:.1%}"])  # fmt: skip
+    plain_table = md_table(["System", "Recall", "Precision", "F1", "Valid JSON (strict)"], plain)
     return (
         f"## Per-category F1\n\n{per_category}\n\n"
         "## Recall by sampling stratum\n\n"
         "Targeted hunks come from risk-looking paths, which the heuristic also keys on. Random "
         f"hunks are where it has no head start.\n\n{by_stratum}\n\n"
-        "## Local models: threshold vs plain decoding\n\n"
-        f"Thresholds are tuned on validation to reach 0.90 recall.\n\n{local}\n\n"
+        "## Local models: threshold reference\n\n"
+        "Each threshold is the highest one that reaches 0.90 recall on validation. The first runs "
+        "tuned it against the teacher's validation labels; it is now tuned against the panel's, "
+        "which are made the same way as the test labels (see "
+        f"[decisions](../docs/decisions.md)).\n\n{protocols}\n\n"
+        "## Local models: plain decoding\n\n"
+        "The model's own `risk` field with no threshold, parsed leniently (a code fence is "
+        f"tolerated); the valid column is strict, as in the release bar.\n\n{plain_table}\n\n"
         f"## Release bar\n\n{release_bar(results)}\n"
     )
 
@@ -227,12 +285,18 @@ def main() -> None:
         if not (target if system.kind == "api" else target / "test.jsonl").exists():
             continue
         labels, info = decisions(system)
+        if system.kind == "local":
+            info["protocol_scores"] = {
+                ref: score(gold, ref_labels, strata)
+                for ref, (_, ref_labels) in info["protocols"].items()
+            }
         results.append((system, info, score(gold, labels, strata)))
 
     header = (
         f"Scored on {len(gold)} test hunks from 5 held-out repositories ({n_high} `high`). "
-        "Local models use a P(high) threshold tuned on validation; API models are scored as "
-        "returned. † Panel member: it helped write the answer key, so its scores are inflated."
+        "Local models use a P(high) threshold tuned on panel-labeled validation; API models are "
+        "scored as returned. † Panel member: it helped write the answer key, so its scores are "
+        "inflated."
     )
     if pending:
         header = (

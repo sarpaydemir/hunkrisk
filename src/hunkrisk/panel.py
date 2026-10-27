@@ -3,10 +3,12 @@
     uv run python -m hunkrisk.panel data/labels/test/claude-sonnet-5.jsonl \\
         data/labels/test/gpt-5.6-terra.jsonl
     uv run python -m hunkrisk.gold --ids data/gold/disagreements.txt
+    uv run python -m hunkrisk.panel <val judge a> <val judge b> --out data/labels/val-panel
 
 Where the judges agree on risk, that's the gold label; when both say `high`, the categories are
 the union of theirs. Where they disagree, a human decides, blind to both judges, using the gold
-labeling tool. Human labels always win.
+labeling tool. Human labels always win. With --out, the same merge builds a reference for
+another split (validation, for threshold tuning), where disagreements are simply left out.
 """
 
 import argparse
@@ -49,6 +51,7 @@ def load_gold(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("judges", type=Path, nargs=2)
+    parser.add_argument("--out", type=Path, default=PANEL_PATH.parent, help="default: data/gold")
     args = parser.parse_args()
 
     first, second = (load_labels(path) for path in args.judges)
@@ -61,13 +64,15 @@ def main() -> None:
         else:
             disagreements.append(hunk_id)
 
-    PANEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PANEL_PATH.write_text("".join(json.dumps(e) + "\n" for e in agreed))
-    DISAGREEMENTS_PATH.write_text("".join(f"{i}\n" for i in disagreements))
+    panel_path = args.out / PANEL_PATH.name
+    disagreements_path = args.out / DISAGREEMENTS_PATH.name
+    args.out.mkdir(parents=True, exist_ok=True)
+    panel_path.write_text("".join(json.dumps(e) + "\n" for e in agreed))
+    disagreements_path.write_text("".join(f"{i}\n" for i in disagreements))
     high = sum(e["label"]["risk"] == "high" for e in agreed)
     print(
-        f"{len(agreed)} agreed ({high} high), {len(disagreements)} for human adjudication "
-        f"-> {PANEL_PATH}, {DISAGREEMENTS_PATH}"
+        f"{len(agreed)} agreed ({high} high), {len(disagreements)} disagreements "
+        f"-> {panel_path}, {disagreements_path}"
     )
 
 

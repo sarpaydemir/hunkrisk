@@ -7,7 +7,7 @@ A small fine-tuned model that reads one diff hunk and decides whether it needs c
 These protect the evaluation. Breaking one silently invalidates the results.
 
 - **Split by repository.** `configs/repos.yaml` assigns every source repo to exactly one of train, val or test, and was fixed before any data was pulled. Nothing from test repos is used for training, prompt design, threshold tuning or model selection.
-- **Gold labels are human and blind.** Test labels in `data/gold/` are written by a person who hasn't seen teacher or model output for that hunk. Tooling must never show model output before the human label is saved. Agents never edit gold labels.
+- **Gold labels are blind.** Test labels in `data/gold/` come from two judges from different companies, with a third settling their disagreements by majority under a rule fixed before it ran (`docs/decisions.md`). No judge sees another's label. A human label from the blind tool overrides them, and the tool never shows model output before the human label is saved. Agents never edit gold labels.
 - **The release bar is pre-registered.** `docs/release-bar.md` was committed before the first training run. Don't edit it; record any change in `docs/decisions.md` with the reason, and call it out in the README.
 - **Permissive licenses only.** Every source repo is MIT, Apache-2.0 or BSD, and is listed with its license in `configs/repos.yaml`.
 - **Runs are reproducible.** Each training or eval run writes `runs/<run_id>/` with the resolved config, git commit, dataset hash and metrics. Never overwrite a run directory.
@@ -23,9 +23,10 @@ uv run python -m hunkrisk.collect                    # hunks -> data/hunks/{test
 uv run python -m hunkrisk.collect --scale 0.1 --only krayin/laravel-crm --out data/smoke
 uv run python -m hunkrisk.label --model deepseek/deepseek-v4.1-flash --input data/hunks/val.jsonl --max-usd 0.05
 uv run python -m hunkrisk.compare <reference.jsonl> <candidate.jsonl>...   # agreement table
-uv run python -m hunkrisk.panel <judge-a.jsonl> <judge-b.jsonl>   # panel gold + disagreements
+uv run python -m hunkrisk.label --model mistralai/mistral-large-4-0 --input data/hunks/test.jsonl --ids data/gold/disagreements.txt --max-usd 0.30   # third judge
+uv run python -m hunkrisk.panel <judge-a.jsonl> <judge-b.jsonl> --tiebreak <judge-c.jsonl>   # test gold
 uv run python -m hunkrisk.panel <val judge a> <val judge b> --out data/labels/val-panel   # threshold reference
-uv run python -m hunkrisk.gold --ids data/gold/disagreements.txt  # blind adjudication UI on :8765
+uv run python -m hunkrisk.gold --ids data/gold/disagreements.txt  # blind human labeling UI on :8765
 uv run python -m hunkrisk.heuristic --split test
 uv run python -m hunkrisk.train configs/train/qwen3.5-2b-lora.yaml
 uv run python -m hunkrisk.evaluate --model runs/<run>/adapter --name ft-qwen3.5-2b   # val + test

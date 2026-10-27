@@ -4,6 +4,8 @@
         --input data/hunks/val.jsonl --sample 50 --max-usd 0.05
     uv run python -m hunkrisk.label --model typesafe/jev-1.14 --api decisions \\
         --input data/hunks/test.jsonl --max-usd 0.05
+    uv run python -m hunkrisk.label --model mistralai/mistral-large-4-0 \\
+        --input data/hunks/test.jsonl --ids data/gold/disagreements.txt --max-usd 0.30
 
 The cost estimate is printed first, and the run refuses to start when the estimate exceeds
 --max-usd or the API key's remaining limit.
@@ -98,6 +100,7 @@ def main() -> None:
     )
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--out", type=Path, help="default: data/labels/<model>/<input name>")
+    parser.add_argument("--ids", type=Path, help="label only the hunk ids listed in this file")
     parser.add_argument("--sample", type=int, help="label a balanced sample of this size")
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--max-usd", type=float, required=True)
@@ -105,6 +108,9 @@ def main() -> None:
     args = parser.parse_args()
 
     records = [json.loads(line) for line in args.input.open()]
+    if args.ids:
+        wanted = set(args.ids.read_text().split())
+        records = [r for r in records if r["id"] in wanted]
     if args.sample:
         records = balanced_sample(records, args.sample, args.seed)
     out = args.out or Path("data/labels") / args.model.split("/")[-1] / args.input.name

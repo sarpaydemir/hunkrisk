@@ -6,11 +6,12 @@ Writes reports/results.md and the results section of README.md. Local models are
 P(high) threshold tuned on validation to reach the release bar's recall, then applied unchanged
 to test. The threshold is tuned against the panel's validation labels, made the same way as the
 test labels; the first runs used teacher labels, and both are reported. Results are marked
-provisional while any panel disagreement is still waiting for a human label.
+provisional while any disagreement between the two test judges is unsettled.
 """
 
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ VAL_REFERENCES = {
     "teacher": Path("data/labels/teacher/val.jsonl"),
 }
 THRESHOLD_ON = "panel"  # the first runs used "teacher"; see docs/decisions.md, 2026-10-27
+TIEBREAK_JUDGE = "Mistral Large 4"  # settles the test judges' disagreements; see the same log
 
 
 @dataclass(frozen=True)
@@ -369,16 +371,25 @@ def main() -> None:
             }
         results.append((system, info, score(gold, labels, strata)))
 
+    sources = Counter(g["source"] for g in gold.values())
+    answer_key = [f"two frontier models' agreement on {sources['panel']}"]
+    if sources["tiebreak"]:
+        answer_key.append(
+            f"a third model's vote ({TIEBREAK_JUDGE}) on the {sources['tiebreak']} they disagree on"
+        )
+    if sources["human"]:
+        answer_key.append(f"a human label on {sources['human']}")
     header = (
         f"Scored on {len(gold)} test hunks from 5 held-out repositories ({n_high} `high`). "
+        f"The answer key is {and_join(answer_key)}. "
         "Local models use a P(high) threshold tuned on panel-labeled validation; API models are "
         "scored as returned. † Panel member: it helped write the answer key, so its scores are "
         "inflated."
     )
     if pending:
         header = (
-            f"**Provisional:** {len(pending)} hunks where the two judges disagreed still need a "
-            "human label and are left out. " + header
+            f"**Provisional:** {len(pending)} hunks where the two judges disagree are unsettled "
+            "and left out. " + header
         )
     table = main_table(results)
     outcome = verdict(results, provisional=bool(pending))

@@ -24,22 +24,22 @@ Code, data pipeline and the full evaluation: [github.com/sarpaydemir/hunkrisk](h
 
 ## Results
 
-**Provisional:** scored on 277 of the 300 test hunks, from five held-out repositories (46 `high`). The other 23 are hunks where the two judges of the answer key disagreed, and they are waiting for a human label. The [results page](https://github.com/sarpaydemir/hunkrisk/blob/main/reports/results.md) has the current numbers.
+Scored on 300 test hunks from five held-out repositories (56 `high`). The answer key is two frontier models' agreement, with a third model settling the 23 hunks they disagree on. The [results page](https://github.com/sarpaydemir/hunkrisk/blob/main/reports/results.md) has every system and table.
 
 | System | Recall | Precision | F1 | Cost / 1k hunks |
 |---|---|---|---|---|
-| **This adapter**, P(high) ≥ 0.148 | 0.91 | 0.58 | 0.71 | $0.036 |
-| This adapter, its own answer | 0.67 | 0.84 | 0.75 | $0.036 |
-| Kimi K3.1 Pro (ceiling) | 0.91 | 0.74 | 0.82 | $1.19 |
-| DeepSeek V4.1 Flash (teacher) | 0.85 | 0.93 | 0.89 | $0.025 |
-| Keyword/path heuristic | 0.78 | 0.35 | 0.48 | $0 |
+| **This adapter**, P(high) ≥ 0.148 | 0.91 | 0.55 | 0.69 | $0.036 |
+| This adapter, its own answer | 0.64 | 0.77 | 0.70 | $0.036 |
+| Kimi K3.1 Pro (ceiling) | 0.91 | 0.66 | 0.77 | $1.19 |
+| DeepSeek V4.1 Flash (teacher) | 0.79 | 0.85 | 0.81 | $0.025 |
+| Keyword/path heuristic | 0.73 | 0.35 | 0.48 | $0 |
 
 - **Threshold:** 0.148 is the highest that reaches 0.90 recall on validation, frozen before test.
 - **Validation ranking:** average precision 0.82 and ROC AUC 0.95 for `high`, on 300 hunks from five other repositories.
 - **Validity:** 100% valid JSON with unconstrained decoding.
 - **Latency:** 2.19 s per hunk on an RTX 3060 Laptop GPU one at a time, 0.33 s batched. On the same laptop's CPU (Ryzen 7 5800H, bf16) it takes about 41 s, because Qwen3.5's linear-attention layers fall back to PyTorch's reference implementation without a GPU.
 - **Cost:** batched GPU time at an assumed $0.40 per GPU-hour.
-- **[Release bar](https://github.com/sarpaydemir/hunkrisk/blob/main/docs/release-bar.md), pre-registered:** not met on the provisional answer key. Recall and validity pass, and the adapter is 33× cheaper than the ceiling, but its F1 is 10.4 points below the ceiling's, where the bar allows 10.
+- **[Release bar](https://github.com/sarpaydemir/hunkrisk/blob/main/docs/release-bar.md), pre-registered:** met, narrowly. Recall 0.91 (51 of 56 `high` hunks), 100% valid JSON, 33× cheaper than the ceiling, and F1 7.8 points below the ceiling's, where the bar allows 10. Recall is one hunk above the line: had the 23 disputed hunks been settled by one of the two judges instead, it could be 0.89. On those hunks the adapter and the ceiling make the same number of mistakes, which narrows the F1 gap; on the other 277 it is 10.4 points.
 
 ## How to use
 
@@ -105,12 +105,13 @@ Trained on 5,735 hunks from 20 repositories, labeled by the teacher (18% `high`)
 
 ## Data
 
-Single hunks from 30 permissively licensed open-source applications (Laravel, Django, FastAPI, Go, TypeScript), split by repository into train (20 repositories), validation (5) and test (5). Train labels come from DeepSeek V4.1 Flash (MIT license) following a written [labeling guide](https://github.com/sarpaydemir/hunkrisk/blob/main/docs/labeling-guide.md). Test labels come from two frontier models from different companies, with a human settling their disagreements. About 18% of hunks are `high`. Details are in the [dataset card](https://github.com/sarpaydemir/hunkrisk/blob/main/docs/dataset-card.md).
+Single hunks from 30 permissively licensed open-source applications (Laravel, Django, FastAPI, Go, TypeScript), split by repository into train (20 repositories), validation (5) and test (5). Train labels come from DeepSeek V4.1 Flash (MIT license) following a written [labeling guide](https://github.com/sarpaydemir/hunkrisk/blob/main/docs/labeling-guide.md). Test labels come from two frontier models from different companies, with a model from a third company settling their disagreements. About 18% of hunks are `high`. Details are in the [dataset card](https://github.com/sarpaydemir/hunkrisk/blob/main/docs/dataset-card.md).
 
 ## Limitations
 
 - **One hunk, no surrounding code.** The model judges what the hunk shows. Some risk only appears with context from elsewhere in the file or codebase.
 - **It confuses sensitive areas with risky changes.** At the 0.90-recall threshold, most false alarms are harmless edits in auth or payment code: tests, refactors, deprecations, CI. See the [error analysis](https://github.com/sarpaydemir/hunkrisk/blob/main/reports/error-analysis.md).
+- **A model-made answer key.** Three frontier models wrote the test labels, and no human checked them. Scores measure agreement with their majority.
 - **Learned from a teacher model.** The labels it was trained on come from an API model and carry that model's mistakes.
 - **Five held-out repositories.** Test results come with wide confidence intervals and may not transfer to other stacks or domains.
 - **Triage, not approval.** A `low` answer is not a statement that a change is safe.

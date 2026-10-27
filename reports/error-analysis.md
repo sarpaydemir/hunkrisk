@@ -1,8 +1,8 @@
 # Error analysis
 
-Every test error of the first fine-tuned Qwen3.5-2B was read and grouped by hand. The model was fixed before its test errors were read; the follow-up model was already training when this analysis was written, so nothing here fed back into it. The follow-up model, trained on twice the data and the one that is published, is read the same way [at the end](#the-follow-up-model).
+Every test error of the first fine-tuned Qwen3.5-2B was read and grouped by hand. The model was fixed before its test errors were read; the follow-up model was already training when this analysis was written, so nothing here fed back into it. The follow-up model, trained on twice the data and the one that is published, is read the same way [further down](#the-follow-up-model). The 23 hunks the answer key's judges disagree on were settled after both readings, and the errors on them are read [last](#the-23-hunks-settled-by-a-third-judge).
 
-- **Setting:** threshold 0.107 (the highest that reaches 0.90 recall on panel-labeled validation), scored on the 277 provisional gold hunks, 46 of them `high`.
+- **Setting:** threshold 0.107 (the highest that reaches 0.90 recall on panel-labeled validation), scored on the 277 hunks the two judges agree on, 46 of them `high`.
 - **Errors:** 6 missed `high` hunks and 44 false alarms.
 - **To reproduce the dump** (hunk, gold label, model answer and P(high) for each error): `uv run python -m hunkrisk.errors data/predictions/ft-qwen3.5-2b --threshold 0.10669`. IDs below are hunk IDs from `data/hunks/test.jsonl`.
 
@@ -78,3 +78,20 @@ The doubled-data model at its own threshold, 0.148 (0.90 recall on panel-labeled
 - **The threshold still accounts for most false alarms.** In 24 of the 30, the model's own answer was `low`. The other 6 are its own `high` answers, against 5 for the first model.
 - **The ranking improved more than the operating point shows.** Average precision on validation rose from 0.71 to 0.82, and plain decoding (the model's own answers) reaches F1 0.75 on test, against 0.71 at the 0.90-recall threshold. Contrasting examples of harmless changes in sensitive code remain the most direct next step.
 
+## The 23 hunks settled by a third judge
+
+The two judges disagree on 23 test hunks, and a third model settles them by majority (see the [decision log](../docs/decisions.md)). With them, the first model has 7 missed `high` hunks and 55 false alarms on all 300; the follow-up has 5 and 41.
+
+- **Both models make the same 12 mistakes here:** one miss and 11 false alarms. The ceiling, Kimi K3.1 Pro, makes as many, and nine of its false alarms are on the same hunks. Two strong models split on each of these hunks, so their labels are 2-to-1 votes, the least certain in the set.
+- **The miss:** `7a2e872ab6cf` (Polar) renames an emitted billing event type from `meter_credited` to `meter.credited`. Anything that stores or matches the old string breaks. Both models call it "only a string literal", the same kind of miss as the under-weighted data effects above. The teacher said `high`.
+- **The false alarms,** grouped as before:
+
+| Kind | Count | Example |
+|---|---|---|
+| Harmless edits inside sensitive code | 5 | truncating a Stripe coupon name to the API's 40-character limit (`fbe28f3c8bdc`) |
+| CI, build and local dev setup | 2 | a dev script's secrets-file helper, removed and replaced (`909b7e41545f`, `c0f006d4b1a9`) |
+| Tests in sensitive areas | 2 | permission fixtures moved out of a shared fixtures file (`e1e18b3bf10f`) |
+| Security docs, not security behavior | 1 | the docblock and return type of an OIDC method (`f68f0b8d19bd`) |
+| A non-unique index | 1 | an index on `views.updated_at` (`4d6458ac80a8`) |
+
+- **Several are defensible calls.** The labeling guide lists indexes under schema, but this one can't lose data, and two of the three judges said `low`. Five of the 11 are the follow-up model's own `high` answer, and the teacher said `high` on five as well.

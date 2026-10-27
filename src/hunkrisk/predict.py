@@ -9,6 +9,7 @@ as they were in the dataset.
 """
 
 import argparse
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -39,7 +40,8 @@ def main() -> None:
         parser.exit(message="no reviewable hunks in the diff\n")
 
     model_dir = args.model if Path(args.model).exists() else snapshot_download(args.model)
-    model, tokenizer = load(model_dir, args.device, args.load_in_4bit)
+    with contextlib.redirect_stdout(sys.stderr):  # Unsloth prints a banner; keep stdout JSON
+        model, tokenizer = load(model_dir, args.device, args.load_in_4bit)
     predictor = Predictor(model, tokenizer, args.device, full_guide=False)
     for hunk in hunks:
         p = predictor.predict(hunk.file, hunk.text, max_new_tokens=160)

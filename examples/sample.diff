@@ -1,0 +1,49 @@
+diff --git a/app/Http/Controllers/InvoiceController.php b/app/Http/Controllers/InvoiceController.php
+index 3f2a1c4..8b0d9e7 100644
+--- a/app/Http/Controllers/InvoiceController.php
++++ b/app/Http/Controllers/InvoiceController.php
+@@ -38,10 +38,7 @@ class InvoiceController extends Controller
+ 
+     public function destroy(Request $request, Invoice $invoice)
+     {
+-        if ($invoice->user_id !== $request->user()->id) {
+-            abort(403);
+-        }
+         $invoice->delete();
+ 
+         return redirect()->route('invoices.index');
+     }
+diff --git a/database/migrations/2026_10_20_000000_drop_legacy_totals_from_orders.php b/database/migrations/2026_10_20_000000_drop_legacy_totals_from_orders.php
+new file mode 100644
+index 0000000..5d1e2f3
+--- /dev/null
++++ b/database/migrations/2026_10_20_000000_drop_legacy_totals_from_orders.php
+@@ -0,0 +1,15 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::table('orders', function (Blueprint $table) {
++            $table->dropColumn(['legacy_total', 'legacy_currency']);
++        });
++    }
++};
+diff --git a/resources/views/invoices/index.blade.php b/resources/views/invoices/index.blade.php
+index 1a2b3c4..5d6e7f8 100644
+--- a/resources/views/invoices/index.blade.php
++++ b/resources/views/invoices/index.blade.php
+@@ -12,7 +12,7 @@
+     <table class="table">
+         <thead>
+             <tr>
+-                <th>Invoice #</th>
++                <th>{{ __('Invoice number') }}</th>
+                 <th>{{ __('Date') }}</th>
+                 <th>{{ __('Total') }}</th>
+             </tr>

@@ -23,7 +23,7 @@ I built this project by directing a coding agent, Claude Code, rather than writi
 - **Replacing manual test labeling with a model panel.** Two frontier models from different companies label the test set. I planned to settle their 23 disagreements by hand, then gave them to a third model from another company instead, under a rule committed before it ran. The README says the answer key has no human label in it.
 - **Pushing back on a recommendation.** I asked to try TypeSafe's Jev decision model as the labeler. Measuring it showed it was too inaccurate for an answer key, but it became a baseline, so the results include a purpose-built decision API.
 - **Scrutinizing judge choices.** I asked why GLM-5.3 and Grok 4.7 weren't judges. Comparing them showed both force reasoning, billed as output, so their cost couldn't be predicted or capped.
-- **Publishing:** a private GitHub repository until I've reviewed it, and the adapter public on Hugging Face.
+- **Publishing:** the GitHub repository stayed private until I had reviewed it, and the adapter went public on Hugging Face.
 
 ## Where measurement changed the plan
 

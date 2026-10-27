@@ -1,6 +1,6 @@
 # Error analysis
 
-Every test error of the first fine-tuned Qwen3.5-2B was read and grouped by hand. The model was fixed before its test errors were read; the follow-up model was already training when this analysis was written, so nothing here fed back into it.
+Every test error of the first fine-tuned Qwen3.5-2B was read and grouped by hand. The model was fixed before its test errors were read; the follow-up model was already training when this analysis was written, so nothing here fed back into it. The follow-up model, trained on twice the data and the one that is published, is read the same way [at the end](#the-follow-up-model).
 
 - **Setting:** threshold 0.107 (the highest that reaches 0.90 recall on panel-labeled validation), scored on the 277 provisional gold hunks, 46 of them `high`.
 - **Errors:** 6 missed `high` hunks and 44 false alarms.
@@ -56,3 +56,25 @@ All of these touch the right vocabulary without changing risky behavior.
 - **The ranking is better than the operating point.** Test AUC is 0.94 and the plain decoding is precise, but recall at 0.90 costs half the precision. Better separation between "sensitive area" and "risky change" matters more than a better threshold.
 - **Training data in sensitive areas needs harmless contrasts.** Tests, refactors, deprecations and CI changes in auth or payment code, labeled `low`, are the confusions above. The follow-up run doubles the data, which adds more of them. Picking such hunks on purpose would be the next step.
 - **One hunk isn't always enough.** `683ad3f30608` needs to know what `$hidden` does, and `dc0640d89e02` needs to know that nothing else stores the upload. A model with a few lines of surrounding file context, or the file's other hunks, would see more of the effect.
+
+## The follow-up model
+
+The doubled-data model at its own threshold, 0.148 (0.90 recall on panel-labeled validation), on the same 277 hunks: 4 missed `high` hunks and 30 false alarms, down from 6 and 44. To reproduce: `uv run python -m hunkrisk.errors data/predictions/ft-qwen3.5-2b-x2 --threshold 0.14805`.
+
+- **Misses.** It fixes three of the first model's six: both that under-weighted an effect on data (`dc0640d89e02`, `ee7a5d630c68`) and the debatable label (`7a57e9a4d27d`). The two misreadings and the missed guide rule remain (`683ad3f30608`, `b8b2e66fe9f1`, `1b94e7a1f43d`). One miss is new: `73dcda5459ce` (BookStack) adds a relation from attachments to the permission table, which both the model and the teacher call a read-only relationship. Whether it matters depends on where it's used, and the hunk doesn't show that.
+- **False alarms.** 27 of the 30 were false alarms for the first model too, and 3 are new. Grouped as before:
+
+| Kind | First model | Follow-up |
+|---|---|---|
+| CI, build and local dev setup | 11 | 6 |
+| Harmless edits inside sensitive code | 7 | 6 |
+| Tests that add coverage in sensitive areas | 7 | 2 |
+| API surface without behavior change | 7 | 7 |
+| New code outside the five categories | 6 | 2 |
+| Config and validation for non-sensitive settings | 4 | 4 |
+| Security wording or docs, not security behavior | 2 | 3 |
+
+- **More data fixed tests, CI and new code, not deprecations.** Six of the seven API-surface false alarms deprecate a field or remove a deprecated one. Three of them are the model's own `high` answer, with reasons like "changing which data can be exported" for a deprecation notice. A deprecation changes nothing until the field is removed, and the training data doesn't teach that.
+- **The threshold still accounts for most false alarms.** In 24 of the 30, the model's own answer was `low`. The other 6 are its own `high` answers, against 5 for the first model.
+- **The ranking improved more than the operating point shows.** Average precision on validation rose from 0.71 to 0.82, and plain decoding (the model's own answers) reaches F1 0.75 on test, against 0.71 at the 0.90-recall threshold. Contrasting examples of harmless changes in sensitive code remain the most direct next step.
+

@@ -1,0 +1,17 @@
+{
+  "revision": "f5025ebeff9c17e81c09c57b2facb9906052753c",
+  "datasets": {
+    "train_hunks": "8ca242c9bb82a6810ce2f0aa60dd4f2ede4ce233df7ca213dcc0a2de7f561fd9",
+    "train_labels": "c9af501d1c5c91169d221f5958ffc0492a83dea65ae4482d57ee4d41d9948d0e",
+    "val_hunks": "66e8a098bb854d36c6c19235b0c06e32cbaeb4860310c8c0121626468740ac7e",
+    "val_labels": "4e7fcdf287a04c7a371117c9d8192fb06966579511d4e980fba42574d8020c44"
+  },
+  "train_examples": 5735,
+  "train_high_share": 0.1803,
+  "val_examples": 300,
+  "best_eval_loss": 0.5882977247238159,
+  "best_checkpoint": "runs/20261027-0353-qwen3.5-2b-lora-x2/checkpoints/checkpoint-718",
+  "steps": 718,
+  "minutes": 61.9,
+  "peak_vram_gb": 4.77
+}
